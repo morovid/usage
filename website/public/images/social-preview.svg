@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0H0V40" fill="none" stroke="#252a2b" stroke-width="1"/></pattern>
+    <linearGradient id="accent"><stop stop-color="#ff9457"/><stop offset=".33" stop-color="#6bdcea"/><stop offset=".66" stop-color="#b4ef78"/><stop offset="1" stop-color="#7b9eff"/></linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="#101112"/>
+  <rect width="1200" height="630" fill="url(#grid)" opacity=".45"/>
+  <rect x="66" y="61" width="8" height="22" fill="#ff9457"/><rect x="79" y="48" width="8" height="35" fill="#6bdcea"/><rect x="92" y="56" width="8" height="27" fill="#b4ef78"/><rect x="105" y="43" width="8" height="40" fill="#7b9eff"/>
+  <text x="129" y="79" fill="#f0f0ed" font-family="Arial,sans-serif" font-size="36" font-weight="700" letter-spacing="-2">usage<tspan fill="#b4ef78">.</tspan></text>
+  <text x="249" y="79" fill="#a4a9a9" font-family="Arial,sans-serif" font-size="17">by Morovid</text>
+  <text x="66" y="234" fill="#f0f0ed" font-family="Arial,sans-serif" font-size="66" font-weight="700" letter-spacing="-3">Your AI usage.</text>
+  <text x="66" y="319" fill="#f0f0ed" font-family="Arial,sans-serif" font-size="66" font-weight="700" letter-spacing="-3">In your menu bar.</text>
+  <rect x="67" y="346" width="414" height="5" fill="url(#accent)"/>
+  <text x="68" y="408" fill="#aeb5b4" font-family="Arial,sans-serif" font-size="22">Free and open source for macOS.</text>
+  <text x="68" y="557" fill="#8f9999" font-family="monospace" font-size="15" letter-spacing="1">USAGE.MOROVID.COM</text>
+  <rect x="685" y="145" width="440" height="345" rx="9" fill="#1d2022" stroke="#535b5c"/>
+  <rect x="685" y="145" width="440" height="45" rx="9" fill="#292d2e"/>
+  <circle cx="708" cy="167" r="4" fill="#ff9457"/><circle cx="724" cy="167" r="4" fill="#6bdcea"/><circle cx="740" cy="167" r="4" fill="#b4ef78"/>
+  <text x="715" y="228" fill="#e3e7e5" font-family="Arial,sans-serif" font-size="18" font-weight="700">Claude</text>
+  <text x="1093" y="228" text-anchor="end" fill="#adb5b5" font-family="monospace" font-size="14">73%</text>
+  <rect x="715" y="241" width="378" height="11" rx="2" fill="#343a3b"/><rect x="715" y="241" width="276" height="11" rx="2" fill="#ff9457"/>
+  <text x="715" y="294" fill="#e3e7e5" font-family="Arial,sans-serif" font-size="18" font-weight="700">OpenAI</text>
+  <text x="1093" y="294" text-anchor="end" fill="#adb5b5" font-family="monospace" font-size="14">42%</text>
+  <rect x="715" y="307" width="378" height="11" rx="2" fill="#343a3b"/><rect x="715" y="307" width="159" height="11" rx="2" fill="#6bdcea"/>
+  <text x="715" y="360" fill="#e3e7e5" font-family="Arial,sans-serif" font-size="18" font-weight="700">Kimi</text>
+  <text x="1093" y="360" text-anchor="end" fill="#adb5b5" font-family="monospace" font-size="14">28%</text>
+  <rect x="715" y="373" width="378" height="11" rx="2" fill="#343a3b"/><rect x="715" y="373" width="106" height="11" rx="2" fill="#b4ef78"/>
+  <text x="715" y="426" fill="#e3e7e5" font-family="Arial,sans-serif" font-size="18" font-weight="700">GitHub Copilot</text>
+  <text x="1093" y="426" text-anchor="end" fill="#adb5b5" font-family="monospace" font-size="14">56%</text>
+  <rect x="715" y="439" width="378" height="11" rx="2" fill="#343a3b"/><rect x="715" y="439" width="212" height="11" rx="2" fill="#7b9eff"/>
+  <text x="1093" y="476" text-anchor="end" fill="#9ba4a4" font-family="monospace" font-size="10">ILLUSTRATIVE PREVIEW</text>
+</svg>

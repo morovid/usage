@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#101112" />
+    <title>AI Usage Tracker for Mac | Usage by Morovid</title>
+    <meta
+      name="description"
+      content="Track Claude, Codex, Kimi, OpenCode Go, and Copilot usage from your Mac menu bar. Free and open source, with quota alerts."
+    />
+    <link rel="canonical" href="https://usage.morovid.com/" />
+    <meta property="og:title" content="AI Usage Tracker for Mac | Usage by Morovid" />
+    <meta
+      property="og:description"
+       content="Usage by Morovid. One tiny menu-bar app. All your AI accounts. Free and open source for macOS."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://usage.morovid.com/" />
+    <meta property="og:image" content="https://usage.morovid.com/images/social-preview.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Usage by Morovid tracks AI account usage in your Mac menu bar." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="AI Usage Tracker for Mac | Usage by Morovid" />
+    <meta name="twitter:description" content="Track AI account usage from your Mac menu bar. Free and open source, with quota alerts." />
+    <meta name="twitter:image" content="https://usage.morovid.com/images/social-preview.png" />
+    <meta name="twitter:image:alt" content="Usage by Morovid tracks AI account usage in your Mac menu bar." />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/fonts/fonts.css" />
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="/script.js" defer></script>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "Usage by Morovid",
+        "url": "https://usage.morovid.com/",
+        "description": "A free, open-source macOS menu-bar app for tracking AI subscription usage and API billing.",
+        "applicationCategory": "UtilitiesApplication",
+        "operatingSystem": "macOS 14 or later",
+        "author": {
+          "@type": "Organization",
+          "name": "Morovid",
+          "url": "https://morovid.com/"
+        },
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "USD"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header wrap">
+      <a class="wordmark" href="#" aria-label="Usage by Morovid home"
+        ><span class="app-mark" aria-hidden="true"
+          ><i></i><i></i><i></i><i></i></span
+        >usage<span class="wordmark-dot">.</span><span class="brand-attribution">by Morovid</span></a
+      >
+      <nav aria-label="Main navigation">
+        <a class="nav-detail" href="#features">Features</a>
+        <a class="nav-detail" href="#providers">Providers</a>
+        <a class="nav-github repo-icon" href="https://github.com/morovid/usage" aria-label="Usage repository on GitHub">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 .75a11.25 11.25 0 0 0-3.56 21.92c.56.1.77-.24.77-.54v-2.1c-3.13.68-3.79-1.33-3.79-1.33-.51-1.3-1.25-1.65-1.25-1.65-1.02-.7.08-.69.08-.69 1.13.08 1.72 1.16 1.72 1.16 1 1.72 2.63 1.22 3.27.93.1-.73.39-1.22.71-1.5-2.5-.28-5.13-1.25-5.13-5.56 0-1.23.44-2.23 1.16-3.02-.12-.28-.5-1.43.11-2.98 0 0 .95-.3 3.1 1.15a10.8 10.8 0 0 1 5.64 0c2.15-1.46 3.09-1.15 3.09-1.15.62 1.55.23 2.7.12 2.98.72.79 1.15 1.79 1.15 3.02 0 4.32-2.63 5.27-5.14 5.55.4.35.76 1.03.76 2.08v3.11c0 .3.2.65.78.54A11.25 11.25 0 0 0 12 .75Z"/></svg>
+        </a>
+      </nav>
+    </header>
+
+    <main id="main">
+      <section class="hero wrap" aria-labelledby="hero-title">
+        <h1 id="hero-title">
+          Your AI usage.<br />In your <span class="highlight">menu bar.</span>
+        </h1>
+        <p class="hero-description">
+          Check usage across your AI accounts on your Mac, and get notified
+          when a subscription quota is approaching its limit.
+        </p>
+        <div class="hero-actions">
+          <a class="button button-primary" href="https://github.com/morovid/usage/releases"
+            >Download for macOS <span aria-hidden="true">↗</span></a
+          >
+        </div>
+        <p class="download-note">Download the DMG from GitHub Releases when available.</p>
+        <div class="hero-meta">
+          <span>macOS 14+</span><span>Free forever</span
+          ><span>MIT licensed</span>
+        </div>
+
+        <!-- HERO IMAGE SLOT: replace .preview-stage with an <img class="hero-image"
+             src="/images/usage-hero.webp" alt="Usage running in the macOS menu bar">.
+             Keep the surrounding .app-preview and figcaption. Suggested image: 2400 × 1400. -->
+        <figure class="app-preview">
+          <div class="preview-topline">
+            <span
+              ><span class="status-dot"></span> YOUR WORKFLOW, AT A GLANCE</span
+            ><span class="preview-code">/ usage.app</span>
+          </div>
+          <div class="preview-stage">
+            <div class="stage-grid" aria-hidden="true"></div>
+            <div class="stage-caption">
+              <span class="crosshair">+</span
+              ><span>STAY IN THE FLOW.<br />WE’LL WATCH THE LIMITS.</span>
+            </div>
+            <div class="desktop-menubar" aria-hidden="true">
+              <span>Finder &nbsp; File &nbsp; Edit &nbsp; View</span
+              ><span class="mini-bars">▂▅▃▇</span
+              ><span>100% &nbsp; Mon 9:41</span>
+            </div>
+            <div
+              class="usage-panel"
+              aria-label="Illustrative preview with example usage values"
+            >
+              <div class="panel-heading">
+                <span class="wordmark small"
+                  >usage<span class="wordmark-dot">.</span></span
+                ><span class="live-label"
+                  ><span class="status-dot"></span> ALL SYSTEMS VISIBLE</span
+                >
+              </div>
+              <div class="account-row">
+                <div class="account-label">
+                  <span>Claude <small>Personal</small></span
+                  ><span class="account-window">5-hour window</span>
+                </div>
+                <div class="meter orange">
+                  <span style="--fill: 73%"></span><b>73%</b>
+                </div>
+              </div>
+              <div class="account-row">
+                <div class="account-label">
+                  <span>OpenAI <small>Work</small></span
+                  ><span class="account-window">Weekly window</span>
+                </div>
+                <div class="meter cyan">
+                  <span style="--fill: 42%"></span><b>42%</b>
+                </div>
+              </div>
+              <div class="account-row">
+                <div class="account-label">
+                  <span>Kimi <small>Personal</small></span
+                  ><span class="account-window">Weekly window</span>
+                </div>
+                <div class="meter green">
+                  <span style="--fill: 28%"></span><b>28%</b>
+                </div>
+              </div>
+              <div class="account-row">
+                <div class="account-label">
+                  <span>GitHub Copilot <small>Work</small></span
+                  ><span class="account-window">Monthly window</span>
+                </div>
+                <div class="meter blue">
+                  <span style="--fill: 56%"></span><b>56%</b>
+                </div>
+              </div>
+              <div class="panel-bottom">
+                <span>Example accounts & readings</span
+                ><span aria-hidden="true">⚙</span>
+              </div>
+            </div>
+            <div class="notification-preview">
+              <span class="notification-icon" aria-hidden="true">↗</span>
+              <div>
+                <strong>A heads-up. Not a roadblock.</strong>
+                <p>Your Claude usage is at 73%.</p>
+                <small>5-hour limit is approaching.</small>
+              </div>
+              <span class="notification-time">now</span>
+            </div>
+            <div class="stage-coordinate" aria-hidden="true">
+              01 / VISIBILITY
+            </div>
+          </div>
+          <figcaption>
+            <span>ONE MENU BAR. YOUR WHOLE AI STACK.</span
+            ><span>Illustrative preview <span aria-hidden="true">↗</span></span>
+          </figcaption>
+        </figure>
+      </section>
+
+      <section
+        class="providers-section wrap"
+        id="providers"
+        aria-labelledby="providers-title"
+      >
+        <div class="section-kicker">
+          <span class="section-index">01 — CONNECT</span>
+        </div>
+        <div class="providers-heading">
+          <h2 id="providers-title">Supported providers.</h2>
+          <p>Subscription quotas and API billing, in one place.</p>
+        </div>
+        <div class="provider-grid">
+          <div class="provider">
+            <span class="provider-logo provider-claude orange-text" aria-hidden="true"></span
+            ><strong>Claude</strong><span>Anthropic</span>
+          </div>
+          <div class="provider">
+            <span class="provider-logo provider-openai cyan-text" aria-hidden="true"></span
+            ><strong>OpenAI</strong><span>ChatGPT / Codex</span>
+          </div>
+          <div class="provider">
+            <span class="provider-logo provider-kimi blue-text" aria-hidden="true"></span
+            ><strong>Kimi</strong><span>Moonshot</span>
+          </div>
+          <div class="provider">
+            <span class="provider-logo provider-opencode green-text" aria-hidden="true"></span
+            ><strong>OpenCode</strong><span>Go subscriptions</span>
+          </div>
+          <div class="provider">
+            <span class="provider-logo provider-copilot" aria-hidden="true"></span
+            ><strong>GitHub Copilot</strong><span>Personal quotas</span>
+          </div>
+        </div>
+        <div class="provider-details">
+          <div>
+            <h3>Subscription accounts</h3>
+            <p>See reported quota windows for Claude, ChatGPT / Codex, Kimi Code, OpenCode Go, and GitHub Copilot. Get alerts at 70% and 100%.</p>
+          </div>
+          <div>
+            <h3>API accounts</h3>
+            <p>See month-to-date organization spend for Anthropic and OpenAI, or available balance for Moonshot. These are separate accounts from subscription quotas.</p>
+          </div>
+        </div>
+        <p class="provider-note">Available readings depend on your plan and provider access. Some connections require specific keys or CLI tools.</p>
+      </section>
+
+      <section
+        class="features-section wrap"
+        id="features"
+        aria-labelledby="features-title"
+      >
+        <div class="section-kicker">
+          <span class="section-index">02 — KEEP BUILDING</span>
+        </div>
+        <h2 id="features-title">
+          Your usage,<br />at a glance.
+        </h2>
+        <div class="feature-grid">
+          <article class="feature-card alert-card">
+            <div class="card-top">
+              <span class="feature-number">[ 01 ]</span
+              ><span class="orange-text">↗</span>
+            </div>
+            <div class="threshold-visual" aria-hidden="true">
+              <div class="threshold-labels">
+                <span>HEADS-UP</span><span>LIMIT REACHED</span>
+              </div>
+              <div class="threshold-track"><span></span><i></i></div>
+              <div class="threshold-values">
+                <b>70<span>%</span></b
+                ><b>100<span>%</span></b>
+              </div>
+            </div>
+            <h3>Quota alerts at 70% and 100%.</h3>
+            <p>
+              Get a native macOS notification when a subscription quota reaches
+              70%, and again at 100%. Know when to switch gears, without
+              watching a dashboard.
+            </p>
+            <span class="card-footnote"
+              >Quota alerts · macOS permission required</span
+            >
+          </article>
+          <article class="feature-card accounts-card">
+            <div class="card-top">
+              <span class="feature-number">[ 02 ]</span
+              ><span class="cyan-text">+</span>
+            </div>
+            <div class="accounts-visual" aria-hidden="true">
+              <span>PERSONAL</span><span>WORK</span><span>SIDE PROJECT</span
+              ><span class="infinity">∞</span>
+            </div>
+            <h3>Unlimited accounts.</h3>
+            <p>
+              Personal account? Work account? Another side project? Add
+              unlimited accounts, including multiple accounts from the same
+              provider. Keep them all in view.
+            </p>
+            <span class="card-footnote">Your accounts, on your terms</span>
+          </article>
+          <article class="feature-card local-card">
+            <div class="card-top">
+              <span class="feature-number">[ 03 ]</span
+              ><span class="green-text">⌁</span>
+            </div>
+            <div class="local-visual" aria-hidden="true">
+              <span>YOUR MAC</span><i></i><span>YOUR PROVIDER</span
+              ><small>direct connection / no middleman</small>
+            </div>
+            <h3>Credentials stored locally.</h3>
+            <p>
+              A native Swift menu-bar app. Credentials stay in secure local
+              storage. Usage connects directly to your providers, with no
+              intermediary backend and no telemetry.
+            </p>
+            <span class="card-footnote"
+              >Small footprint. Nothing to report.</span
+            >
+          </article>
+        </div>
+      </section>
+
+      <section class="open-source wrap" aria-labelledby="open-source-title">
+        <div class="open-source-content">
+          <span class="section-index">03 — OUT IN THE OPEN</span>
+          <h2 id="open-source-title">Free and open source.</h2>
+          <p>
+            Free to use. Free to inspect. Free to make your own.<br />Usage by Morovid is
+            open source under the MIT license.
+          </p>
+        </div>
+        <div class="source-visual" aria-hidden="true">
+          <div class="source-title">
+            <span class="status-dot"></span> usage / philosophy.swift
+          </div>
+          <code
+            ><span class="code-gray">// Less noise. More building.</span
+            ><br /><span class="code-blue">let</span> price =
+            <span class="code-orange">0</span><br /><span class="code-blue"
+              >let</span
+            >
+            accountLimit = <span class="code-cyan">nil</span><br /><span
+              class="code-blue"
+              >let</span
+            >
+            source = <span class="code-green">"open"</span><br /><br /><span
+              class="code-gray"
+              >// Yours to use. Yours to improve.</span
+            ></code
+          >
+          <div class="source-bottom">
+            <span>MIT LICENSE</span><span class="green-text">● PUBLIC</span>
+          </div>
+        </div>
+      </section>
+    </main>
+    <footer class="site-footer wrap">
+      <a class="wordmark" href="#" aria-label="Usage by Morovid home"
+        ><span class="app-mark" aria-hidden="true"
+          ><i></i><i></i><i></i><i></i></span
+        >usage<span class="wordmark-dot">.</span><span class="brand-attribution">by Morovid</span></a
+      >
+      <p>Keep building. Know your limits.</p>
+      <small>
+        Created by <a href="https://morovid.com">Morovid ↗</a>.
+      </small>
+    </footer>
+  </body>
+</html>
