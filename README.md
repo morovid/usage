@@ -4,6 +4,9 @@ A native macOS menu-bar app for monitoring AI subscription usage and API billing
 
 Requires **macOS 14+** and **Swift 6 / Xcode 16+** to build.
 
+The static website and Cloudflare Pages deployment instructions are documented
+in [`docs/website.md`](docs/website.md).
+
 ## Build and run
 
 ```sh
