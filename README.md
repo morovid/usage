@@ -15,13 +15,42 @@ zsh scripts/build-app.sh
 open dist/Usage.app
 ```
 
-Run the app bundle rather than `swift run` so macOS notifications work. The build script signs the app ad hoc by default. To use a stable signing identity for Keychain access:
+Run the app bundle rather than `swift run` so macOS notifications work. Local builds produce only `dist/Usage.app`, signed with the Morovid Developer ID (`R973J5PQW7`) by default to preserve Keychain trust across builds. To override the identity:
 
 ```sh
 SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" zsh scripts/build-app.sh
 ```
 
-Distribution to other Macs also requires hardened runtime and notarization. Open `Package.swift` in Xcode to edit or debug the package.
+Use `SIGN_IDENTITY=-` only for ad-hoc builds; these do not preserve Keychain trust across rebuilds. Open `Package.swift` in Xcode to edit or debug the package.
+
+### Release DMG (local notarization)
+
+Once, store Apple notarization credentials locally. Use your Apple Developer Apple ID and an
+[app-specific password](https://support.apple.com/102654), not your normal password:
+
+```sh
+xcrun notarytool store-credentials usage-notary --apple-id "you@example.com" --team-id R973J5PQW7
+```
+
+Enter the app-specific password when prompted. No credentials belong in the repository.
+The Apple ID must have access to that developer team.
+
+Then build a release:
+
+```sh
+zsh scripts/release.sh 1.0.0
+```
+
+This builds and signs `dist/Usage.app`, sets its version, notarizes and staples it,
+then creates, signs, notarizes and staples `dist/Usage-1.0.0.dmg`. The image contains
+the app and an Applications shortcut. Verification must pass before the final DMG
+is published into `dist/`. A `.dmg.sha256` checksum and notarization submission
+JSON files are saved alongside it. Existing DMGs are not overwritten.
+
+Optional environment overrides: `SIGN_IDENTITY`, `NOTARY_PROFILE` (default:
+`usage-notary`), and `BUILD_NUMBER` (default: the release version).
+The source `Support/Info.plist` is not modified. Builds target the current Mac's
+architecture; this does not create a universal binary.
 
 ## Connect accounts
 
@@ -29,7 +58,7 @@ Open **Accounts** from the menu-bar icon, select a provider, and follow the sign
 
 | Provider | Connection | Reading |
 | --- | --- | --- |
-| Claude subscription | Claude Code CLI sign-in, session import, or OAuth token | Subscription usage |
+| Claude | Claude Code CLI sign-in, session import, or OAuth token | Subscription usage |
 | OpenAI subscription | ChatGPT sign-in through the official Codex CLI | Reported ChatGPT/Codex quotas |
 | Kimi subscription | Global Kimi browser sign-in or subscription API key | Kimi Code quotas |
 | OpenCode | OpenCode Go workspace API key | Go usage |
@@ -37,6 +66,7 @@ Open **Accounts** from the menu-bar icon, select a provider, and follow the sign
 | Anthropic API | Claude Console organization Admin API key with analytics access | Organization month-to-date cost before credits |
 | OpenAI API | Organization Admin API key with costs-read access | Organization month-to-date spend |
 | Moonshot API | Global Open Platform API key | Available balance |
+| DeepSeek API | DeepSeek API key | Available balance (DeepSeek has no subscription quotas) |
 
 For Claude and OpenAI subscription sign-in, install the respective official CLI first. Claude Code sign-in affects your normal CLI session; OpenAI uses a separate Codex session for each Usage account. OpenCode requires a key with Go access. API billing accounts are separate from subscription accounts and do not show quota percentages.
 
@@ -62,5 +92,6 @@ Sources/UsageCore/      Provider integrations and models
 Tests/UsageCoreTests/   Tests
 Support/Info.plist      App bundle configuration
 scripts/build-app.sh    Build and package the app
+scripts/make-icon.swift Regenerates Support/AppIcon.icns from the website favicon
 website/                Static landing page
 ```
