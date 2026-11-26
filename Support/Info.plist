@@ -5,6 +5,7 @@
     <key>CFBundleName</key><string>Usage</string>
     <key>CFBundleDisplayName</key><string>Usage</string>
     <key>CFBundleIdentifier</key><string>app.morovid.Usage</string>
+    <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>CFBundleExecutable</key><string>Usage</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>1.0.0</string>

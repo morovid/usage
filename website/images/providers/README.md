@@ -4,8 +4,8 @@ Locally hosted SVG brand marks, rendered as CSS masks using the site's accent
 colors. Visible provider names supply the accessible labels; the marks are
 decorative.
 
-- Claude, OpenAI, Kimi, OpenCode: [Lobe Icons](https://github.com/lobehub/lobe-icons),
-  `packages/static-svg/icons/{claude,openai,kimi,opencode}.svg`.
+- Claude, OpenAI, Kimi, DeepSeek, OpenCode: [Lobe Icons](https://github.com/lobehub/lobe-icons),
+  `packages/static-svg/icons/{claude,openai,kimi,deepseek,opencode}.svg`.
   [MIT license](https://github.com/lobehub/lobe-icons/blob/master/LICENSE).
   Copyright © 2023 LobeHub. SVG sizing/style attributes and fill colors normalized.
 - GitHub Copilot: [Simple Icons](https://github.com/simple-icons/simple-icons),

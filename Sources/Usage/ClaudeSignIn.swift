@@ -34,7 +34,7 @@ final class ClaudeSignIn: ObservableObject {
                 guard generation == attempt else { return }
                 self.credential = credential
                 isSigningIn = false
-                phase = "Claude subscription usage verified."
+                phase = ""
                 self.runner = nil
                 task = nil
                 NSApp.activate(ignoringOtherApps: true)

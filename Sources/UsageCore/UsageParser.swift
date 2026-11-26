@@ -13,6 +13,7 @@ public enum UsageParser {
         case .anthropic: windows = anthropic(json)
         case .openAI: windows = openAI(json, now: now)
         case .moonshot: windows = kimi(json)
+        case .deepSeek: windows = []
         case .openCode: windows = openCode(json)
         case .githubCopilot: windows = try copilot(json, monthlyAllowance: copilotMonthlyAllowance)
         }

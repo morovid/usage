@@ -10,60 +10,111 @@ enum CredentialAccessError: LocalizedError {
     }
 }
 
-@MainActor
+/// All account credentials live in one Keychain item, so a single approval covers every account.
+/// Items from older versions (one per account) are migrated into it. Safe to call from any thread.
 enum Keychain {
     static let service = "app.morovid.Usage.credentials"
-    private static var credentials: [UUID: Credential] = [:]
-    private static var pendingWrites: Set<UUID> = []
+    private static let vaultAccount = "vault"
+    private final class State: @unchecked Sendable {
+        let lock = NSLock()
+        var credentials: [UUID: Credential] = [:]
+        var loaded = false
+        var dirty = false
+    }
+    private static let state = State()
+
+    private static func locked<T>(_ body: (State) -> T) -> T {
+        state.lock.lock(); defer { state.lock.unlock() }
+        return body(state)
+    }
+
+    /// Loads the vault and migrates legacy per-account items. Returns accounts whose legacy item needs approval.
+    @discardableResult
+    static func load(allowInteraction: Bool, legacyIDs: [UUID] = []) throws -> Set<UUID> {
+        if !locked({ $0.loaded }) {
+            var map: [UUID: Credential] = [:]
+            if let data = try copy(service: service, account: vaultAccount, allowInteraction: allowInteraction) {
+                let raw = try JSONDecoder().decode([String: Credential].self, from: data)
+                for (key, value) in raw { if let id = UUID(uuidString: key) { map[id] = value } }
+            }
+            locked { state in
+                // Anything saved while loading wins over the stored copy.
+                state.credentials = map.merging(state.credentials) { _, new in new }
+                state.loaded = true
+            }
+        }
+        return migrateLegacy(legacyIDs.filter { id in locked { $0.credentials[id] == nil } }, allowInteraction: allowInteraction)
+    }
+
+    private static func migrateLegacy(_ ids: [UUID], allowInteraction: Bool) -> Set<UUID> {
+        var denied: Set<UUID> = []
+        var migrated: [UUID] = []
+        for id in ids {
+            do {
+                guard let data = try copy(service: service, account: id.uuidString, allowInteraction: allowInteraction),
+                      let credential = try? JSONDecoder().decode(Credential.self, from: data) else { continue }
+                locked { $0.credentials[id] = credential }
+                migrated.append(id)
+            } catch { denied.insert(id) }
+        }
+        guard !migrated.isEmpty else { return denied }
+        do {
+            try persist(allowInteraction: allowInteraction)
+            for id in migrated { deleteItem(account: id.uuidString) }
+        } catch { locked { $0.dirty = true } }
+        return denied
+    }
 
     static func save(_ credential: Credential, for id: UUID, allowInteraction: Bool = true) throws {
-        let data = try JSONEncoder().encode(credential)
-        var query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: id.uuidString
-        ]
-        if !allowInteraction {
-            let context = LAContext()
-            context.interactionNotAllowed = true
-            query[kSecUseAuthenticationContext as String] = context
+        try load(allowInteraction: allowInteraction)
+        let previous = locked { state -> Credential? in
+            let old = state.credentials[id]
+            state.credentials[id] = credential
+            return old
         }
-        do {
-            let status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
-            if status == errSecItemNotFound {
-                var item = query
-                item[kSecValueData as String] = data
-                item[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
-                // The creating, signed application is trusted by the item's default ACL.
-                // Never grant access to arbitrary applications or change other apps' ACLs.
-                try check(SecItemAdd(item as CFDictionary, nil))
-            } else { try check(status) }
-            credentials[id] = credential
-            pendingWrites.remove(id)
-        } catch {
-            if !allowInteraction {
+        do { try persist(allowInteraction: allowInteraction) } catch {
+            if allowInteraction {
+                locked { $0.credentials[id] = previous }
+            } else {
                 // A rotated OAuth token must not be lost if Keychain is temporarily locked.
-                credentials[id] = credential
-                pendingWrites.insert(id)
+                locked { $0.dirty = true }
             }
             throw error
         }
     }
 
     static func read(for id: UUID, allowInteraction: Bool = false) throws -> Credential {
-        if let credential = credentials[id] {
-            if pendingWrites.contains(id) {
-                try save(credential, for: id, allowInteraction: allowInteraction)
-            }
-            return credential
+        try load(allowInteraction: allowInteraction)
+        if locked({ $0.credentials[id] == nil }) {
+            if migrateLegacy([id], allowInteraction: allowInteraction).contains(id) { throw CredentialAccessError.approvalRequired }
         }
-        let data = try read(service: service, account: id.uuidString, allowInteraction: allowInteraction)
-        let credential = try JSONDecoder().decode(Credential.self, from: data)
-        credentials[id] = credential
+        guard let credential = locked({ $0.credentials[id] }) else {
+            throw UsageError.message("Credential not found. Import a signed-in session or enter a token.")
+        }
+        if locked({ $0.dirty }) { try persist(allowInteraction: allowInteraction) }
         return credential
     }
 
     static func read(service: String, account: String? = nil, allowInteraction: Bool = true) throws -> Data {
+        guard let data = try copy(service: service, account: account, allowInteraction: allowInteraction) else {
+            throw UsageError.message("Credential not found. Import a signed-in session or enter a token.")
+        }
+        return data
+    }
+
+    static func delete(for id: UUID) throws {
+        try load(allowInteraction: true)
+        let removed = locked { $0.credentials.removeValue(forKey: id) }
+        if removed != nil {
+            do { try persist(allowInteraction: true) } catch {
+                locked { $0.credentials[id] = removed }
+                throw error
+            }
+        }
+        deleteItem(account: id.uuidString)
+    }
+
+    private static func copy(service: String, account: String?, allowInteraction: Bool) throws -> Data? {
         var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -77,20 +128,44 @@ enum Keychain {
             query[kSecUseAuthenticationContext as String] = context
         }
         var result: CFTypeRef?
-        try check(SecItemCopyMatching(query as CFDictionary, &result))
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        if status == errSecItemNotFound { return nil }
+        try check(status)
         guard let data = result as? Data else { throw UsageError.message("No credential was found in Keychain.") }
         return data
     }
 
-    static func delete(for id: UUID) throws {
-        let status = SecItemDelete([
+    private static func persist(allowInteraction: Bool) throws {
+        let snapshot = locked { state in Dictionary(uniqueKeysWithValues: state.credentials.map { ($0.key.uuidString, $0.value) }) }
+        let data = try JSONEncoder().encode(snapshot)
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: id.uuidString
+            kSecAttrAccount as String: vaultAccount
+        ]
+        if !allowInteraction {
+            let context = LAContext()
+            context.interactionNotAllowed = true
+            query[kSecUseAuthenticationContext as String] = context
+        }
+        let status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+        if status == errSecItemNotFound {
+            var item = query
+            item[kSecValueData as String] = data
+            item[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+            // The creating, signed application is trusted by the item's default ACL.
+            // Never grant access to arbitrary applications or change other apps' ACLs.
+            try check(SecItemAdd(item as CFDictionary, nil))
+        } else { try check(status) }
+        locked { $0.dirty = false }
+    }
+
+    private static func deleteItem(account: String) {
+        SecItemDelete([
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account
         ] as CFDictionary)
-        if status != errSecItemNotFound { try check(status) }
-        credentials.removeValue(forKey: id)
-        pendingWrites.remove(id)
     }
 
     private static func check(_ status: OSStatus) throws {
@@ -128,6 +203,22 @@ enum SessionImport {
             throw UsageError.message("This is not a Claude Code OAuth credential file. Run `claude auth login` first.")
         }
         return ImportedSession(credential: Credential(accessToken: token), email: nil)
+    }
+
+    static func openCodeGo() throws -> ImportedSession {
+        let env = ProcessInfo.processInfo.environment
+        let base = env["XDG_DATA_HOME"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) }
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/share")
+        let url = base.appendingPathComponent("opencode/auth.json")
+        guard let data = try? Data(contentsOf: url), data.count < 1_000_000 else {
+            throw UsageError.message("No OpenCode login found. Run /connect in OpenCode and choose OpenCode Go, or paste a key.")
+        }
+        guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let entry = root["opencode-go"] as? [String: Any],
+              let key = entry["key"] as? String, !key.isEmpty else {
+            throw UsageError.message("OpenCode has no OpenCode Go key. Run /connect and choose OpenCode Go, or paste a key.")
+        }
+        return ImportedSession(credential: Credential(accessToken: key), email: nil)
     }
 
     static func codex(path: String) throws -> ImportedSession {

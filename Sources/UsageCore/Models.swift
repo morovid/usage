@@ -1,22 +1,24 @@
 import Foundation
 
 public enum Provider: String, Codable, CaseIterable, Identifiable, Sendable {
-    case anthropic, openAI, moonshot, openCode, githubCopilot
+    case anthropic, openAI, moonshot, deepSeek, openCode, githubCopilot
     public var id: String { rawValue }
     public var name: String {
         switch self {
         case .anthropic: "Anthropic"
         case .openAI: "OpenAI"
         case .moonshot: "Moonshot"
+        case .deepSeek: "DeepSeek"
         case .openCode: "OpenCode"
         case .githubCopilot: "GitHub Copilot"
         }
     }
     public var product: String {
         switch self {
-        case .anthropic: "Claude subscription"
+        case .anthropic: "Claude"
         case .openAI: "ChatGPT / Codex subscription"
         case .moonshot: "Kimi Code subscription"
+        case .deepSeek: "DeepSeek API balance"
         case .openCode: "OpenCode Go subscription"
         case .githubCopilot: "GitHub Copilot subscription"
         }
@@ -26,6 +28,7 @@ public enum Provider: String, Codable, CaseIterable, Identifiable, Sendable {
         case .anthropic: URL(string: "https://claude.ai/settings/usage")!
         case .openAI: URL(string: "https://chatgpt.com/codex/settings/usage")!
         case .moonshot: URL(string: "https://www.kimi.com/code/console")!
+        case .deepSeek: URL(string: "https://platform.deepseek.com")!
         case .openCode: URL(string: "https://opencode.ai/console")!
         case .githubCopilot: URL(string: "https://github.com/settings/copilot")!
         }
@@ -38,6 +41,8 @@ public enum Provider: String, Codable, CaseIterable, Identifiable, Sendable {
             "Sign in with ChatGPT in your browser. Usage uses the official Codex CLI to manage sign-in and refresh in an isolated account session. Reported ChatGPT/Codex quota windows are monitored; these are not total usage across all ChatGPT products."
         case .moonshot:
             "Sign in with Kimi for a Global Kimi Code subscription, or use a subscription API key from the matching region's console. Moonshot pay-as-you-go API keys do not expose subscription quotas."
+        case .deepSeek:
+            "DeepSeek has no subscription quotas. Add an API key to monitor your prepaid balance."
         case .openCode:
             "Use an API key from an OpenCode workspace with an active Go subscription. Zen pay-as-you-go balances are not subscription usage limits."
         case .githubCopilot:
@@ -45,7 +50,9 @@ public enum Provider: String, Codable, CaseIterable, Identifiable, Sendable {
         }
     }
     public var usesEmailLabel: Bool { self == .anthropic || self == .openAI }
-    public var supportsAPIBilling: Bool { [.anthropic, .openAI, .moonshot].contains(self) }
+    public var supportsAPIBilling: Bool { [.anthropic, .openAI, .moonshot, .deepSeek].contains(self) }
+    /// Providers without a subscription product: accounts are always API accounts.
+    public var isAPIOnly: Bool { self == .deepSeek }
     public var apiCredentialHelp: String {
         switch self {
         case .anthropic:
@@ -54,6 +61,8 @@ public enum Provider: String, Codable, CaseIterable, Identifiable, Sendable {
             "Enter an organization Admin API key with permission to read costs. Ordinary project/model API keys do not provide billing access. Usage shows organization-wide month-to-date spend in USD, not remaining credits or ChatGPT quotas."
         case .moonshot:
             "Enter a Global Moonshot Open Platform API key. Usage shows your available USD balance, including vouchers—not Kimi Code quotas. China-region API keys are not supported."
+        case .deepSeek:
+            "Enter a DeepSeek API key. Usage shows your available balance, not subscription quotas."
         default: ""
         }
     }
@@ -62,6 +71,7 @@ public enum Provider: String, Codable, CaseIterable, Identifiable, Sendable {
         case .anthropic: URL(string: "https://platform.claude.com/settings/admin-keys")!
         case .openAI: URL(string: "https://platform.openai.com/settings/organization/admin-keys")!
         case .moonshot: URL(string: "https://platform.kimi.ai/console/api-keys")!
+        case .deepSeek: URL(string: "https://platform.deepseek.com/api_keys")!
         default: consoleURL
         }
     }

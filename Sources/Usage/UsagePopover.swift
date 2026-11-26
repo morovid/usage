@@ -7,6 +7,7 @@ extension Provider {
         case .anthropic: Color(red: 0.79, green: 0.49, blue: 0.36)
         case .openAI: Color(red: 0.23, green: 0.64, blue: 0.51)
         case .moonshot: Color(red: 0.40, green: 0.51, blue: 0.92)
+        case .deepSeek: Color(red: 0.30, green: 0.42, blue: 1.0)
         case .openCode: Color(red: 0.61, green: 0.48, blue: 0.85)
         case .githubCopilot: Color(red: 0.48, green: 0.55, blue: 0.64)
         }
@@ -16,6 +17,7 @@ extension Provider {
         case .anthropic: "A"
         case .openAI: "O"
         case .moonshot: "K"
+        case .deepSeek: "DS"
         case .openCode: "OC"
         case .githubCopilot: "GH"
         }

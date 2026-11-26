@@ -71,6 +71,23 @@ struct APIBillingTests {
         #expect(request.httpBody == nil)
     }
 
+    @Test func deepSeekBalanceUsesUserBalanceEndpoint() async throws {
+        let json = #"{"is_available":true,"balance_infos":[{"currency":"CNY","total_balance":"70.00","granted_balance":"0.00","topped_up_balance":"70.00"},{"currency":"USD","total_balance":"12.34","granted_balance":"2.34","topped_up_balance":"10.00"}]}"#
+        let client = APIBillingClient(session: session([.init(json: json)]))
+        let account = Account(provider: .deepSeek, email: "DeepSeek API", apiAccess: true)
+        let snapshot = try await client.fetch(account: account, credential: key, now: now)
+        #expect(snapshot.windows.isEmpty)
+        #expect(snapshot.billing?.kind == .balance)
+        #expect(snapshot.billing?.currency == "USD")
+        #expect(snapshot.billing?.amount == 12.34)
+        #expect(snapshot.billing?.cashBalance == 10)
+        #expect(snapshot.billing?.voucherBalance == 2.34)
+        let request = try #require(BillingMockProtocol.requests.first)
+        #expect(request.url?.absoluteString == "https://api.deepseek.com/user/balance")
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer test-key")
+        #expect(throws: (any Error).self) { try APIBillingClient.parseDeepSeekBalance(Data(#"{"balance_infos":[]}"#.utf8)) }
+    }
+
     @Test func zeroAndNegativeBalancesAreRealReadings() throws {
         for value in ["0", "-1.5"] {
             let data = balance.replacingOccurrences(of: "49.58894", with: value)

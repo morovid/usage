@@ -28,7 +28,7 @@ public final class APIBillingClient: @unchecked Sendable {
 
     public func fetch(account: Account, credential: Credential, now: Date = Date()) async throws -> UsageSnapshot {
         guard account.isAPI, account.source == .keychain,
-              [.anthropic, .openAI, .moonshot].contains(account.provider) else {
+              [.anthropic, .openAI, .moonshot, .deepSeek].contains(account.provider) else {
             throw UsageError.message("This account does not support API billing.")
         }
         guard !credential.accessToken.isEmpty,
@@ -38,6 +38,10 @@ public final class APIBillingClient: @unchecked Sendable {
         let billing: APIBillingSummary
         if account.provider == .anthropic {
             billing = try await anthropicCosts(credential: credential, now: now)
+        } else if account.provider == .deepSeek {
+            let data = try await get(URL(string: "https://api.deepseek.com/user/balance")!,
+                                     credential: credential, provider: .deepSeek)
+            billing = try Self.parseDeepSeekBalance(data)
         } else if account.provider == .moonshot {
             guard account.kimiInternational else {
                 throw UsageError.message("Moonshot API monitoring currently supports Global accounts only.")
@@ -104,6 +108,18 @@ public final class APIBillingClient: @unchecked Sendable {
         return APIBillingSummary(kind: .balance, amount: response.data.availableBalance, currency: "USD",
                                  periodStart: nil, cashBalance: response.data.cashBalance,
                                  voucherBalance: response.data.voucherBalance)
+    }
+
+    public static func parseDeepSeekBalance(_ data: Data) throws -> APIBillingSummary {
+        let response = try JSONDecoder().decode(DeepSeekBalanceResponse.self, from: data)
+        // Prefer USD; otherwise show the first reported currency rather than convert.
+        guard let info = response.balanceInfos.first(where: { $0.currency == "USD" }) ?? response.balanceInfos.first,
+              let total = Double(info.totalBalance), total.isFinite,
+              let granted = Double(info.grantedBalance), granted.isFinite,
+              let toppedUp = Double(info.toppedUpBalance), toppedUp.isFinite,
+              ["USD", "CNY"].contains(info.currency) else { throw malformed() }
+        return APIBillingSummary(kind: .balance, amount: total, currency: info.currency,
+                                 periodStart: nil, cashBalance: toppedUp, voucherBalance: granted)
     }
 
     private func anthropicCosts(credential: Credential, now: Date) async throws -> APIBillingSummary {
@@ -183,7 +199,9 @@ public final class APIBillingClient: @unchecked Sendable {
             let hint = provider == .anthropic
                 ? "Anthropic cost monitoring requires a Claude Console organization Admin API key with analytics access. A normal inference key or Claude subscription token cannot read API billing."
                 : provider == .openAI
-                ? "OpenAI cost monitoring requires an organization Admin API key with permission to read costs; ordinary project/model API keys cannot read this endpoint."
+                ? "OpenAI cost monitoring requires an organization Admin API key with the Usage: Read (api.usage.read) permission, which only organization owners can create. Regular project keys cannot read spend."
+                : provider == .deepSeek
+                ? "Use a valid DeepSeek API key from platform.deepseek.com."
                 : "Use a Global Moonshot Open Platform API key, not a Kimi Code subscription key or a China-region key."
             throw UsageError.message("API billing access denied (HTTP \(http.statusCode)). \(hint)")
         case 429: throw UsageError.message("API billing rate limit reached. Please try again later.")
@@ -215,6 +233,20 @@ private struct AnthropicCostPage: Decodable {
     struct Cost: Decodable {
         let currency: String
         let amount: String
+    }
+}
+
+private struct DeepSeekBalanceResponse: Decodable {
+    let balanceInfos: [Info]
+    enum CodingKeys: String, CodingKey { case balanceInfos = "balance_infos" }
+    struct Info: Decodable {
+        let currency: String
+        let totalBalance: String
+        let grantedBalance: String
+        let toppedUpBalance: String
+        enum CodingKeys: String, CodingKey {
+            case currency, totalBalance = "total_balance", grantedBalance = "granted_balance", toppedUpBalance = "topped_up_balance"
+        }
     }
 }
 

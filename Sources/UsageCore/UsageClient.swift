@@ -31,6 +31,7 @@ public final class UsageClient: @unchecked Sendable {
         case .openAI: url = URL(string: "https://chatgpt.com/backend-api/wham/usage")!
         case .moonshot:
             url = URL(string: "https://\(account.kimiInternational ? "api.kimi.ai" : "api.kimi.com")/coding/v1/usages")!
+        case .deepSeek: throw UsageError.message("DeepSeek has no subscription quotas. Use an API account.")
         case .openCode: url = URL(string: "https://opencode.ai/inference/go/v1/usage")!
         case .githubCopilot: url = URL(string: "https://api.github.com/copilot_internal/user")!
         }

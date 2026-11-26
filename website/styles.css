@@ -601,7 +601,7 @@ h2 {
 .provider:hover {
   background: #202224;
 }
-.provider:last-child {
+.provider:nth-child(odd):last-child {
   grid-column: 1/-1;
 }
 .provider-logo {
@@ -620,6 +620,9 @@ h2 {
 }
 .provider-kimi {
   --provider-logo: url("/images/providers/kimi.svg");
+}
+.provider-deepseek {
+  --provider-logo: url("/images/providers/deepseek.svg");
 }
 .provider-opencode {
   --provider-logo: url("/images/providers/opencode.svg");
