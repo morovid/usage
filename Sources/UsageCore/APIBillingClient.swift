@@ -39,9 +39,12 @@ public final class APIBillingClient: @unchecked Sendable {
         if account.provider == .anthropic {
             billing = try await anthropicCosts(credential: credential, now: now)
         } else if account.provider == .deepSeek {
-            let data = try await get(URL(string: "https://api.deepseek.com/user/balance")!,
+            let endpoint = credential.deepSeekHarness == true
+                ? "https://platform.deepseek.com/api/v0/users/get_user_summary"
+                : "https://api.deepseek.com/user/balance"
+            let data = try await get(URL(string: endpoint)!,
                                      credential: credential, provider: .deepSeek)
-            billing = try Self.parseDeepSeekBalance(data)
+            billing = try credential.deepSeekHarness == true ? Self.parseDeepSeekHarnessBalance(data) : Self.parseDeepSeekBalance(data)
         } else if account.provider == .moonshot {
             guard account.kimiInternational else {
                 throw UsageError.message("Moonshot API monitoring currently supports Global accounts only.")
@@ -122,6 +125,42 @@ public final class APIBillingClient: @unchecked Sendable {
                                  periodStart: nil, cashBalance: toppedUp, voucherBalance: granted)
     }
 
+    public static func parseDeepSeekHarnessBalance(_ data: Data) throws -> APIBillingSummary {
+        if let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+           root["code"] as? Int == 40003 {
+            throw UsageError.message("DeepSeek Harness sign-in expired. Sign in to Harness and import the session again.")
+        }
+        struct Envelope: Decodable {
+            let code: Int
+            let data: Payload
+            struct Payload: Decodable {
+                let biz_code: Int
+                let biz_data: Wallets
+            }
+            struct Wallets: Decodable {
+                let normal_wallets: [Wallet]
+                let bonus_wallets: [Wallet]
+            }
+            struct Wallet: Decodable {
+                let currency: String
+                let balance: String
+            }
+        }
+        let response = try JSONDecoder().decode(Envelope.self, from: data)
+        guard response.code == 0, response.data.biz_code == 0 else { throw malformed() }
+        let wallets = response.data.biz_data
+        let all = wallets.normal_wallets + wallets.bonus_wallets
+        guard !all.isEmpty, all.allSatisfy({ ["USD", "CNY"].contains($0.currency) && Double($0.balance)?.isFinite == true }) else {
+            throw malformed()
+        }
+        let currency = all.contains(where: { $0.currency == "USD" }) ? "USD" : "CNY"
+        let cash = wallets.normal_wallets.filter { $0.currency == currency }.reduce(0.0) { $0 + Double($1.balance)! }
+        let bonus = wallets.bonus_wallets.filter { $0.currency == currency }.reduce(0.0) { $0 + Double($1.balance)! }
+        guard (cash + bonus).isFinite else { throw malformed() }
+        return APIBillingSummary(kind: .balance, amount: cash + bonus, currency: currency,
+                                 periodStart: nil, cashBalance: cash, voucherBalance: bonus)
+    }
+
     private func anthropicCosts(credential: Credential, now: Date) async throws -> APIBillingSummary {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
@@ -185,6 +224,8 @@ public final class APIBillingClient: @unchecked Sendable {
             request.setValue(credential.accessToken, forHTTPHeaderField: "x-api-key")
             request.setValue("2026-10-21", forHTTPHeaderField: "anthropic-version")
             request.setValue("analytics-usage-cost-2026-08-24", forHTTPHeaderField: "anthropic-beta")
+        } else if provider == .deepSeek, credential.deepSeekHarness == true {
+            request.setValue(credential.accessToken, forHTTPHeaderField: "x-dsh-auth-token")
         } else {
             request.setValue("Bearer \(credential.accessToken)", forHTTPHeaderField: "Authorization")
         }
@@ -201,7 +242,9 @@ public final class APIBillingClient: @unchecked Sendable {
                 : provider == .openAI
                 ? "OpenAI cost monitoring requires an organization Admin API key with the Usage: Read (api.usage.read) permission, which only organization owners can create. Regular project keys cannot read spend."
                 : provider == .deepSeek
-                ? "Use a valid DeepSeek API key from platform.deepseek.com."
+                ? (credential.deepSeekHarness == true
+                   ? "DeepSeek Harness sign-in expired or was revoked. Sign in to Harness and import again."
+                   : "Use a valid DeepSeek API key from platform.deepseek.com.")
                 : "Use a Global Moonshot Open Platform API key, not a Kimi Code subscription key or a China-region key."
             throw UsageError.message("API billing access denied (HTTP \(http.statusCode)). \(hint)")
         case 429: throw UsageError.message("API billing rate limit reached. Please try again later.")

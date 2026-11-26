@@ -93,13 +93,17 @@ public struct Account: Identifiable, Codable, Equatable, Sendable {
     public var copilotMonthlyAllowance: Double?
     /// Missing on older accounts, which are always subscription accounts.
     public var apiAccess: Bool?
+    /// Remembers the connection method for the account editor; credentials remain in Keychain.
+    public var importsCLI: Bool?
+    /// One-way digest used to hide local credentials already added. Never a token.
+    public var importFingerprint: String?
     public var isAPI: Bool { apiAccess == true }
     public var displayProviderName: String { provider == .openCode ? "OpenCode Go" : provider.name + (isAPI ? " API" : "") }
 
     public init(id: UUID = UUID(), provider: Provider, email: String,
                 source: CredentialSource = .keychain, credentialPath: String? = nil,
                 externalAccountID: String? = nil, kimiInternational: Bool = false,
-                copilotMonthlyAllowance: Double? = nil, apiAccess: Bool? = nil) {
+                copilotMonthlyAllowance: Double? = nil, apiAccess: Bool? = nil, importsCLI: Bool? = nil) {
         self.id = id
         self.provider = provider
         self.email = email
@@ -109,6 +113,7 @@ public struct Account: Identifiable, Codable, Equatable, Sendable {
         self.kimiInternational = kimiInternational
         self.copilotMonthlyAllowance = copilotMonthlyAllowance
         self.apiAccess = apiAccess
+        self.importsCLI = importsCLI
     }
 }
 
@@ -119,6 +124,8 @@ public struct Credential: Codable, Sendable {
     public var expiresAt: Date?
     public var refreshTokenExpiresAt: Date?
     public var oauthClientID: String?
+    /// Imported Harness browser grant; must never be sent as an inference API key.
+    public var deepSeekHarness: Bool?
     public init(accessToken: String, accountID: String? = nil, refreshToken: String? = nil,
                 expiresAt: Date? = nil, refreshTokenExpiresAt: Date? = nil, oauthClientID: String? = nil) {
         self.accessToken = accessToken

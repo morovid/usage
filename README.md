@@ -1,6 +1,6 @@
 # Usage
 
-A native macOS menu-bar app for monitoring AI subscription usage and API billing. Built with SwiftUI and AppKit; no third-party dependencies.
+A native macOS menu-bar app for monitoring AI subscription usage and API billing. Built with SwiftUI and AppKit; uses Yams to read DeepSeek Harness credentials.
 
 Requires **macOS 14+** and **Swift 6 / Xcode 16+** to build.
 
@@ -56,25 +56,40 @@ architecture; this does not create a universal binary.
 
 Open **Accounts** from the menu-bar icon, select a provider, and follow the sign-in or verification prompts. Multiple accounts per provider are supported.
 
+**Add account** first offers local Claude Code and DeepSeek Harness sessions, plus supported accounts
+connected through OpenCode (Go, GitHub Copilot, DeepSeek API and global Moonshot API), that
+aren't already added. Detection runs in the background without network calls or permission
+prompts. Import requires an explicit click, verifies usage access before saving, and asks for
+an optional display name only when none is available. **Connect manually** opens the regular setup.
+Tools that require another login, such as Codex, aren't offered as detected accounts.
+Discovery checks standard credential locations,
+not every installed CLI or custom profile. Account identity and one-way credential fingerprints
+filter duplicates; inaccessible legacy accounts may not be identifiable until explicitly imported.
+Known-expired Claude sessions are excluded. Usage copies only Claude's access token and does not
+rotate the CLI's shared refresh token; renew the session with Claude Code before importing.
+An OpenCode connection is not necessarily a subscription: Moonshot and DeepSeek keys show API
+balances, not Kimi Code quotas. Z.ai Coding Plan and OpenRouter monitoring aren't implemented.
+
 | Provider | Connection | Reading |
 | --- | --- | --- |
-| Claude | Claude Code CLI sign-in, session import, or OAuth token | Subscription usage |
+| Claude | Claude Code CLI sign-in or session import | Subscription usage |
 | OpenAI subscription | ChatGPT sign-in through the official Codex CLI | Reported ChatGPT/Codex quotas |
-| Kimi subscription | Global Kimi browser sign-in or subscription API key | Kimi Code quotas |
-| OpenCode | OpenCode Go workspace API key | Go usage |
+| Kimi subscription | Global Kimi browser sign-in | Kimi Code quotas |
+| OpenCode | OpenCode Go personal API key or OpenCode import | Go usage |
 | GitHub Copilot | GitHub device sign-in | Available Copilot quotas |
 | Anthropic API | Claude Console organization Admin API key with analytics access | Organization month-to-date cost before credits |
 | OpenAI API | Organization Admin API key with costs-read access | Organization month-to-date spend |
 | Moonshot API | Global Open Platform API key | Available balance |
-| DeepSeek API | DeepSeek API key | Available balance (DeepSeek has no subscription quotas) |
+| DeepSeek | DeepSeek API key or Harness / CLI session import | Available balance (not subscription quotas) |
 
 For Claude and OpenAI subscription sign-in, install the respective official CLI first. Claude Code sign-in affects your normal CLI session; OpenAI uses a separate Codex session for each Usage account. OpenCode requires a key with Go access. API billing accounts are separate from subscription accounts and do not show quota percentages.
 
-Some provider endpoints are undocumented or evolving, and integrations are not guaranteed or live-verified with user credentials. GitHub sign-in may succeed even when its quota endpoint rejects access. Kimi browser sign-in uses a public client configuration whose third-party acceptance is not guaranteed; a subscription API key is an alternative. Review [OpenAI's authentication guidance](https://developers.openai.com/codex/app-server/#auth-endpoints) before commercial distribution.
+Some provider endpoints are undocumented or evolving, and integrations are not guaranteed or live-verified with user credentials. GitHub sign-in may succeed even when its quota endpoint rejects access. Kimi browser sign-in uses a public client configuration whose third-party acceptance is not guaranteed. DeepSeek Harness import reads `~/.dsh/.credentials.yaml` (or `$DSH_HOME/.credentials.yaml`) and copies the standard DeepSeek API key or official Platform login grant. It does not launch Harness or make model calls. Imported grants must be reimported if they expire or are revoked; its Platform balance endpoint is internal and may change. Review [OpenAI's authentication guidance](https://developers.openai.com/codex/app-server/#auth-endpoints) before commercial distribution.
 
 ## Usage and privacy
 
 - Click the menu-bar icon to view usage; open **Accounts** to add, edit, refresh, or remove accounts.
+- Drag accounts in the Accounts sidebar to reorder them. The menu-bar popup uses the same order, saved across launches.
 - Healthy accounts refresh every 60 seconds while the Mac is awake. Failed readings retain the last successful result and are marked stale.
 - With macOS notification permission, subscription usage alerts trigger at 70% and 100%. Manage notification delivery in System Settings.
 - Credentials are stored in macOS Keychain; account metadata is stored in `~/Library/Application Support/Usage/accounts.json`. Usage snapshots are memory-only. Codex manages its own isolated credentials.

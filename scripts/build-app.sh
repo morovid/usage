@@ -33,4 +33,11 @@ else
   codesign --verify --strict --verbose=2 "$APP"
   codesign -dr - "$APP" 2>&1 | grep designated
 fi
+# Rebuilding in place can leave Finder/Launch Services showing an old generic
+# icon. Refresh this bundle only; do not reset global caches or restart the Dock.
+touch "$APP"
+LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+if [[ -x "$LSREGISTER" ]]; then
+  "$LSREGISTER" -f "$APP" || echo "Could not refresh app registration; reopen the app to refresh its icon." >&2
+fi
 echo "Built $APP"

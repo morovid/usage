@@ -18,6 +18,23 @@ private struct SavedState: Codable {
     var alerts: [String: AlertState]
 }
 
+/// Prevents an older background alert save overwriting a newer account order.
+private final class StateWriter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var lastRevision: UInt64 = 0
+
+    func write(_ data: Data, to url: URL, revision: UInt64) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        guard revision >= lastRevision else { return }
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true,
+                                                attributes: [.posixPermissions: 0o700])
+        try data.write(to: url, options: [.atomic])
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        lastRevision = revision
+    }
+}
+
 @MainActor
 final class AppStore: ObservableObject {
     @Published private(set) var accounts: [Account] = []
@@ -36,6 +53,8 @@ final class AppStore: ObservableObject {
     private var keychainDenied: Set<UUID> = []
     private var accountRevisions: [UUID: UUID] = [:]
     private let stateURL: URL
+    private let stateWriter = StateWriter()
+    private var stateRevision: UInt64 = 0
     private let center = UNUserNotificationCenter.current()
     private var openAISessionRoot: URL { stateURL.deletingLastPathComponent().appendingPathComponent("OpenAI", isDirectory: true) }
 
@@ -97,7 +116,9 @@ final class AppStore: ObservableObject {
         }
     }
 
-    func save(_ account: Account, credential: Credential?, openAISession: CodexAppServer? = nil) throws {
+    func save(_ incoming: Account, credential: Credential?, openAISession: CodexAppServer? = nil) throws {
+        var account = incoming
+        if let credential { account.importFingerprint = LocalHarnessDetection.fingerprint(credential) }
         guard storageError == nil else { throw UsageError.message("Resolve the storage error before changing accounts.") }
         if let credential { try Keychain.save(credential, for: account.id); keychainDenied.remove(account.id) }
         let previous = accounts
@@ -122,6 +143,18 @@ final class AppStore: ObservableObject {
             codexSessions[account.id] = openAISession
         }
         Task { await refresh(account, force: true) }
+    }
+
+    func moveAccounts(from offsets: IndexSet, to destination: Int) throws {
+        guard storageError == nil else { throw UsageError.message("Resolve the storage error before reordering accounts.") }
+        let previous = accounts
+        let reordered = AccountOrdering.moving(accounts, from: offsets, to: destination)
+        guard reordered != accounts else { return }
+        accounts = reordered
+        do { try persist() } catch {
+            accounts = previous
+            throw error
+        }
     }
 
     func remove(_ account: Account) throws {
@@ -348,22 +381,15 @@ final class AppStore: ObservableObject {
     private func persistInBackground() async throws {
         let data = try JSONEncoder().encode(SavedState(accounts: accounts, alerts: alerts))
         let url = stateURL
-        try await Task.detached(priority: .utility) { try Self.write(data, to: url) }.value
-    }
-
-    nonisolated private static func write(_ data: Data, to url: URL) throws {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true,
-                                                attributes: [.posixPermissions: 0o700])
-        try data.write(to: url, options: [.atomic])
-        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        stateRevision += 1
+        let revision = stateRevision
+        let writer = stateWriter
+        try await Task.detached(priority: .utility) { try writer.write(data, to: url, revision: revision) }.value
     }
 
     private func persist() throws {
-        let directory = stateURL.deletingLastPathComponent()
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
-                                                attributes: [.posixPermissions: 0o700])
         let data = try JSONEncoder().encode(SavedState(accounts: accounts, alerts: alerts))
-        try data.write(to: stateURL, options: [.atomic])
-        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: stateURL.path)
+        stateRevision += 1
+        try stateWriter.write(data, to: stateURL, revision: stateRevision)
     }
 }

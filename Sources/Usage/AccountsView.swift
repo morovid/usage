@@ -30,6 +30,10 @@ struct AccountsView: View {
                             }
                         }.padding(.vertical, 5).tag(account.id)
                     }
+                    .onMove { offsets, destination in
+                        do { try store.moveAccounts(from: offsets, to: destination) }
+                        catch { self.error = error.localizedDescription }
+                    }
                 }
                 .listStyle(.sidebar)
                 if !store.accounts.isEmpty {
@@ -131,7 +135,7 @@ struct AccountsView: View {
                 deleting = nil
             }
         } message: { Text("The saved credential and alert history will be removed. The provider account and any CLI login are not affected.") }
-        .alert("Could not remove account", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
+        .alert("Could not update accounts", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
             Button("OK") { error = nil }
         } message: { Text(error ?? "") }
         .onAppear { if selection == nil { selection = store.accounts.first?.id } }
@@ -167,11 +171,19 @@ struct AccountEditor: View {
     @StateObject private var openAI = OpenAISignIn()
     @StateObject private var kimi = KimiSignIn()
     @StateObject private var claude = ClaudeSignIn()
-    @State private var kimiUsesKey = false
     @State private var claudeImportsSession = false
+    @State private var importedClaudeName: String?
+    @State private var importsProviderSession = false
+    @State private var importedCredential: Credential?
     @State private var copilotAllowanceInput: String
     @State private var usesAPI: Bool
     @State private var apiSaveTask: Task<Void, Never>?
+    @State private var detectedHarnesses: [DetectedHarness] = []
+    @State private var detecting = true
+    @State private var choosingDetected = true
+    @State private var selectedDetection: DetectedHarness?
+    @State private var detectedName = ""
+    @AppStorage("dismissedLocalAccountSuggestions") private var dismissedDetectionIDs = ""
 
     private var pendingCreditUsage: CopilotCreditUsage? {
         github.creditUsage ?? (github.credential == nil ? existing.flatMap { store.statuses[$0.id]?.copilotCreditUsage } : nil)
@@ -192,7 +204,8 @@ struct AccountEditor: View {
         if provider == .openAI { return existing != nil || openAI.identity != nil }
         return true
     }
-    private var usesKimiLogin: Bool { provider == .moonshot && !usesAPI && international && !kimiUsesKey }
+    private var usesKimiLogin: Bool { provider == .moonshot && !usesAPI }
+    private var claudeAccountName: String? { claude.accountName ?? importedClaudeName }
     private var kimiAccountName: String? { kimi.identity?.label ?? existing?.email }
     private var isAuthenticating: Bool { github.isSigningIn || openAI.isSigningIn || kimi.isSigningIn || claude.isSigningIn }
 
@@ -208,15 +221,187 @@ struct AccountEditor: View {
         _credentialPath = State(initialValue: existing?.credentialPath)
         _copilotAllowanceInput = State(initialValue: existing?.copilotMonthlyAllowance?.formatted(.number.grouping(.never)) ?? "")
         _usesAPI = State(initialValue: existing?.isAPI ?? false)
+        _importsProviderSession = State(initialValue: existing?.importsCLI ?? false)
+        _choosingDetected = State(initialValue: existing == nil)
     }
 
-    private var usesKimiKeyFlow: Bool { provider == .moonshot && !usesAPI && !usesKimiLogin }
-    private var namesAreOptional: Bool { usesAPI || provider == .openCode || provider == .anthropic || usesKimiKeyFlow }
+    private var namesAreOptional: Bool { usesAPI || provider == .openCode || provider == .anthropic }
 
     var body: some View {
+        Group {
+            if choosingDetected { detectionView } else { editorView }
+        }
+        .task {
+            guard existing == nil else { return }
+            let found = await Task.detached(priority: .utility) {
+                var found = LocalHarnessDetection.scan()
+                if !found.contains(where: { $0.kind == .claudeCode }),
+                   let claude = SessionImport.claudeKeychainDetected() {
+                    found.insert(claude, at: 0)
+                }
+                return found
+            }.value
+            guard !Task.isCancelled else { return }
+            detectedHarnesses = found
+            detecting = false
+            if availableDetections.isEmpty { choosingDetected = false }
+        }
+        .onDisappear { apiSaveTask?.cancel(); github.cancel(); openAI.cancel(); kimi.cancel(); claude.cancel() }
+    }
+
+    private var availableDetections: [DetectedHarness] {
+        let cached = Dictionary(uniqueKeysWithValues: store.accounts.compactMap { account -> (UUID, String)? in
+            guard let credential = Keychain.cachedCredential(for: account.id) else { return nil }
+            return (account.id, LocalHarnessDetection.fingerprint(credential))
+        })
+        let dismissed = Set(dismissedDetectionIDs.split(separator: "\n").map(String.init))
+        return detectedHarnesses.filter {
+            !dismissed.contains($0.dismissalID) && !$0.isAdded(accounts: store.accounts, cachedFingerprints: cached)
+        }
+    }
+
+    private func dismissDetection(_ detected: DetectedHarness) {
+        var dismissed = Set(dismissedDetectionIDs.split(separator: "\n").map(String.init))
+        dismissed.insert(detected.dismissalID)
+        dismissedDetectionIDs = dismissed.sorted().joined(separator: "\n")
+        selectedDetection = nil
+        error = nil
+        if availableDetections.isEmpty { choosingDetected = false }
+    }
+
+    private var detectionView: some View {
+        VStack(spacing: 24) {
+            Text("Detected on this Mac").font(.title2.bold()).frame(maxWidth: .infinity, alignment: .leading)
+            if detecting {
+                ProgressView("Looking for local sessions…").padding(.vertical, 24)
+            } else if let detected = selectedDetection {
+                VStack(spacing: 16) {
+                    Text(detected.title).font(.headline)
+                    if let name = detected.name {
+                        Text(name).foregroundStyle(.secondary)
+                    } else if detected.provider != .githubCopilot {
+                        TextField("Account name (optional)", text: $detectedName, prompt: Text(detectedDefaultName(detected)))
+                            .textFieldStyle(.roundedBorder).frame(width: 300)
+                    }
+                    Button(saving ? "Verifying…" : "Import account") { importDetected(detected) }
+                        .buttonStyle(.borderedProminent).disabled(saving || store.storageError != nil)
+                    Button("Remove") { dismissDetection(detected) }
+                        .buttonStyle(.link).foregroundStyle(.secondary).disabled(saving)
+                        .help("Hide this suggestion. The original account and login are not changed.")
+                }.padding(.vertical, 12)
+            } else {
+                Text("Import a local session, or connect another account.")
+                    .font(.callout).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
+                ForEach(availableDetections) { detected in
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(detected.title).fontWeight(.medium)
+                            Text(detected.name ?? "Local session available")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button("Import") {
+                            error = nil
+                            if detected.name != nil || detected.provider == .githubCopilot {
+                                importDetected(detected)
+                            } else {
+                                detectedName = ""
+                                selectedDetection = detected
+                            }
+                        }.disabled(saving || store.storageError != nil)
+                        Button("Remove") { dismissDetection(detected) }
+                            .buttonStyle(.link).foregroundStyle(.secondary).disabled(saving)
+                            .help("Hide this suggestion. The original account and login are not changed.")
+                    }.padding(.vertical, 8)
+                }
+            }
+            if let error {
+                Text(error).font(.caption).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true)
+            }
+            HStack {
+                if selectedDetection != nil {
+                    Button("Back") { selectedDetection = nil; error = nil }.disabled(saving)
+                } else {
+                    Button("Connect manually") { choosingDetected = false; error = nil }.disabled(saving)
+                }
+                Spacer()
+                Button("Cancel") { apiSaveTask?.cancel(); dismiss() }.keyboardShortcut(.cancelAction)
+            }
+        }
+        .padding(26).frame(width: 560)
+    }
+
+    private func detectedDefaultName(_ detected: DetectedHarness) -> String {
+        let base = detected.provider == .openCode ? "OpenCode Go" : detected.provider.name + (detected.isAPI ? " API" : "")
+        let others = store.accounts.filter { $0.provider == detected.provider }
+        guard !others.isEmpty else { return base }
+        let taken = Set(others.map(\.email))
+        var number = others.count + 1
+        while taken.contains("\(base) #\(number)") { number += 1 }
+        return "\(base) #\(number)"
+    }
+
+    private func importDetected(_ detected: DetectedHarness) {
+        guard !saving else { return }
+        saving = true
+        error = nil
+        apiSaveTask = Task { @MainActor in
+            do {
+                var session = try await Task.detached(priority: .userInitiated) { () throws -> ImportedSession in
+                    switch detected.kind {
+                    case .claudeCode: return try SessionImport.claudeDefault()
+                    case .openCode: return try SessionImport.openCodeGo()
+                    case .deepSeek: return ImportedSession(credential: try DeepSeekHarnessImport.read(), email: nil)
+                    case .openCodeCopilot, .openCodeDeepSeek, .openCodeMoonshot:
+                        guard let id = detected.openCodeProviderID else { throw UsageError.message("Unsupported OpenCode provider.") }
+                        return ImportedSession(credential: try OpenCodeCredentialImport.read(providerID: id), email: nil)
+                    }
+                }.value
+                try Task.checkCancellation()
+                if detected.provider == .githubCopilot {
+                    let identity = try await GitHubAuth().identity(credential: session.credential)
+                    session.email = identity.login
+                    session.credential.accountID = String(identity.id)
+                }
+                let fingerprint = LocalHarnessDetection.fingerprint(session.credential)
+                let current = DetectedHarness(kind: detected.kind, name: session.email,
+                                              fingerprint: fingerprint, accountID: session.credential.accountID)
+                guard !current.isAdded(accounts: store.accounts) else {
+                    throw UsageError.message("This account is already added.")
+                }
+                let name = (session.email ?? detected.name ?? detectedName).trimmingCharacters(in: .whitespacesAndNewlines)
+                let label = name.isEmpty ? detectedDefaultName(detected) : name
+                guard label.rangeOfCharacter(from: .controlCharacters) == nil else {
+                    throw UsageError.message("Account names must not contain line breaks.")
+                }
+                let account = Account(provider: detected.provider, email: label,
+                                      externalAccountID: session.credential.accountID,
+                                      kimiInternational: true, apiAccess: detected.isAPI,
+                                      importsCLI: true)
+                do {
+                    _ = try await UsageClient().fetch(account: account, credential: session.credential)
+                } catch is CopilotAllowanceRequired {
+                    // The identity and consumption are valid, but GitHub omitted the denominator.
+                    // Save without inventing a quota; it can be configured in Edit.
+                }
+                try Task.checkCancellation()
+                try store.save(account, credential: session.credential)
+                onSaved(account.id)
+                dismiss()
+            } catch {
+                guard !Task.isCancelled else { return }
+                self.error = error.localizedDescription
+                saving = false
+            }
+        }
+    }
+
+    private var editorView: some View {
         VStack(spacing: 28) {
-            Text(existing == nil ? "Connect an account" : "Edit account")
-                .font(.title2.bold()).frame(maxWidth: .infinity, alignment: .leading)
+            HStack {
+                Text(existing == nil ? "Connect an account" : "Edit account").font(.title2.bold())
+                Spacer()
+            }
             Form {
                 Picker("Provider", selection: $provider) {
                     ForEach(Provider.allCases) { Text($0.name).tag($0) }
@@ -229,8 +414,23 @@ struct AccountEditor: View {
                     .pickerStyle(.segmented)
                     .disabled(existing != nil || isAuthenticating)
                 }
+                if provider == .openCode || provider == .deepSeek {
+                    Picker("Connection", selection: $importsProviderSession) {
+                        Text(provider == .deepSeek ? "Harness / CLI" : "Import").tag(true)
+                        Text("API key").tag(false)
+                    }.pickerStyle(.segmented).disabled(isAuthenticating)
+                }
+                if provider == .anthropic && !usesAPI {
+                    if let name = claudeAccountName {
+                        TextField("Account name", text: .constant(name)).disabled(true)
+                    } else if claude.credential != nil || !token.isEmpty || existing != nil {
+                        TextField("Account name (optional)", text: $email, prompt: Text(existing?.email ?? defaultAccountLabel))
+                    }
+                } else if namesAreOptional {
+                    TextField("Account name (optional)", text: $email, prompt: Text(existing?.email ?? defaultAccountLabel))
+                }
                 if provider == .moonshot {
-                    TextField("Kimi region", text: .constant(international ? "Global" : "China")).disabled(true)
+                    TextField("Kimi region", text: .constant("Global")).disabled(true)
                 }
             }
             .formStyle(.grouped).scrollDisabled(true).fixedSize(horizontal: false, vertical: true)
@@ -238,11 +438,6 @@ struct AccountEditor: View {
 
             setup.frame(maxWidth: .infinity).disabled(saving)
 
-            if namesAreOptional {
-                TextField("Account name (optional)", text: $email, prompt: Text(existing?.email ?? defaultAccountLabel))
-                    .textFieldStyle(.roundedBorder).multilineTextAlignment(.center)
-                    .frame(width: 300).disabled(saving)
-            }
             if let error { Text(error).font(.caption).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true) }
             HStack {
                 Spacer()
@@ -251,7 +446,7 @@ struct AccountEditor: View {
                     github.cancel(); openAI.cancel(); kimi.cancel(); claude.cancel(); dismiss()
                 }.keyboardShortcut(.cancelAction)
                 if canSaveAccount {
-                    Button(saving ? "Verifying…" : existing == nil ? (usesAPI || provider == .openCode ? "Verify and add account" : "Add account") : "Save", action: save)
+                    Button(saving ? "Verifying…" : existing == nil ? (usesAPI || provider == .openCode ? "Verify and add account" : "Add account") : "Save", action: { save() })
                         .buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
                         .disabled(saving || store.storageError != nil || isAuthenticating ||
                                   (needsCopilotAllowance && CopilotCreditUsage.parseAllowance(copilotAllowanceInput) == nil))
@@ -268,8 +463,10 @@ struct AccountEditor: View {
             openAI.reset()
             kimi.reset()
             claude.reset()
-            kimiUsesKey = false
             claudeImportsSession = false
+            importedClaudeName = nil
+            importsProviderSession = false
+            importedCredential = nil
             usesAPI = provider.isAPIOnly
             copilotAllowanceInput = ""
             token = ""; accountID = ""; source = .keychain; credentialPath = nil; importMessage = nil; error = nil
@@ -278,64 +475,83 @@ struct AccountEditor: View {
             openAI.reset()
             kimi.reset()
             claude.reset()
+            importedClaudeName = nil
             token = ""; error = nil; importMessage = nil
+        }
+        .onChange(of: importsProviderSession) { _, _ in
+            importedCredential = nil; token = ""; error = nil; importMessage = nil
+        }
+        .onChange(of: isAuthenticating) { wasAuthenticating, authenticating in
+            guard wasAuthenticating, !authenticating, !saving, existing == nil, !usesAPI else { return }
+            let succeeded: Bool
+            switch provider {
+            case .anthropic: succeeded = claude.credential != nil && claude.error == nil
+            case .openAI: succeeded = openAI.identity != nil && openAI.error == nil
+            case .moonshot: succeeded = kimi.credential != nil && kimi.error == nil
+            case .githubCopilot: succeeded = github.credential != nil && github.error == nil
+            default: succeeded = false
+            }
+            if succeeded { save(allowMissingCopilotAllowance: true) }
         }
         .onDisappear { apiSaveTask?.cancel(); github.cancel(); openAI.cancel(); kimi.cancel(); claude.cancel() }
     }
 
     @ViewBuilder
     private var setup: some View {
-        if usesAPI {
+        if (provider == .deepSeek || provider == .openCode) && importsProviderSession {
+            VStack(spacing: 16) {
+                Button(provider == .deepSeek ? "Import from DeepSeek Harness" : "Import from OpenCode",
+                       action: provider == .deepSeek ? importDeepSeek : importOpenCode)
+                    .buttonStyle(.borderedProminent)
+                Text(provider == .deepSeek
+                     ? "Sign in to DeepSeek in Harness, then import the session."
+                     : "Connect OpenCode Go in OpenCode, then import the key.")
+                    .font(.caption).foregroundStyle(.secondary)
+                if let importMessage { Text(importMessage).font(.caption).foregroundStyle(.secondary) }
+            }
+        } else if usesAPI {
             switch provider {
             case .openAI:
-                keySteps(instruction: "Open Admin keys, create an Admin API key with only Usage: Read and copy it",
-                         note: "Only organization owners can create admin keys.")
+                keySteps(title: "Create Admin Key",
+                         instruction: "Settings → Organization → Admin keys → Create new admin key",
+                         note: "Requires an organization owner and Usage: Read (api.usage.read).",
+                         placeholder: "sk-admin-abcd…")
             case .anthropic:
-                keySteps(instruction: "Open Admin keys, create an Admin API key and copy it",
-                         note: "Admin keys require an organization admin role.")
+                keySteps(title: "Create Admin Key",
+                         instruction: "Settings → Admin keys → Create admin key → Add",
+                         note: "Requires the organization admin role. Console admin keys include analytics access; no scopes to select.",
+                         placeholder: "sk-ant-admin01-abcd…")
             default:
-                keySteps(instruction: "Open API keys, create a key and copy it")
+                keySteps(instruction: "API keys → Create API key")
             }
         } else {
             switch provider {
             case .openCode:
                 keySteps(dashboard: provider.consoleURL,
-                         instruction: "Open Account › Personal API keys, create a key and copy it", canImport: true)
+                         instruction: "Account → Personal API keys → Add API key", placeholder: "oc_sk_abcd…")
             case .githubCopilot: githubSetup
             case .openAI: openAISetup
-            case .moonshot: usesKimiLogin ? AnyView(kimiSetup) : AnyView(kimiKeySetup)
+            case .moonshot: kimiSetup
             case .anthropic: claudeSetup
             case .deepSeek: EmptyView()
             }
         }
     }
 
-    private func keySteps(dashboard: URL? = nil, instruction: String, note: String? = nil, canImport: Bool = false) -> some View {
+    private func keySteps(dashboard: URL? = nil, title: String = "Create API Key", instruction: String,
+                          note: String? = nil, placeholder: String = "sk-abcd…") -> some View {
         SetupSteps {
             SetupStep(1, "Open the \(provider.name) dashboard") {
-                Button("Open dashboard ↗") { NSWorkspace.shared.open(dashboard ?? provider.apiConsoleURL) }
+                Button("Open dashboard") { NSWorkspace.shared.open(dashboard ?? provider.apiConsoleURL) }
             }
-            SetupStep(2, instruction) {
+            SetupStep(2, title) {
+                Text(instruction).font(.callout).foregroundStyle(.secondary)
                 if let note { Text(note).font(.caption).foregroundStyle(.secondary) }
             }
             SetupStep(3, "Paste the key") {
-                SecureField(existing == nil ? "Paste key" : "New key (leave blank to keep current)", text: $token)
+                SecureField(existing == nil ? placeholder : "New key (leave blank to keep current)", text: $token)
                     .textFieldStyle(.roundedBorder).textContentType(.password).multilineTextAlignment(.center)
                     .frame(width: 300)
-                if canImport {
-                    Button("Import from OpenCode", action: importOpenCode)
-                    if let importMessage { Text(importMessage).font(.caption).foregroundStyle(.secondary) }
-                }
-            }
-        }
-    }
-
-    private var kimiKeySetup: some View {
-        VStack(spacing: 22) {
-            keySteps(dashboard: international ? URL(string: "https://www.kimi.ai/code/console")! : provider.consoleURL,
-                     instruction: "Open API keys, create a key and copy it")
-            if international {
-                Button("Use browser sign-in instead") { token = ""; kimiUsesKey = false }.buttonStyle(.link)
             }
         }
     }
@@ -343,38 +559,38 @@ struct AccountEditor: View {
     private var kimiSetup: some View {
         VStack(spacing: 22) {
             SetupSteps {
-                SetupStep(1, "Sign in with Kimi") {
+                VStack(spacing: 12) {
                     signInControls(button: "Sign in with Kimi", again: "Sign in again", isSigningIn: kimi.isSigningIn,
                                    phase: kimi.phase, signedIn: kimiAccountName.map { "Signed in as \($0)" },
                                    error: kimi.error) { error = nil; kimi.start() }
                 }
                 if kimi.isSigningIn, let authorization = kimi.authorization {
-                    SetupStep(2, "Enter the code on Kimi") {
+                    VStack(spacing: 12) {
+                        Text("Enter the code on Kimi").font(.callout.weight(.medium))
                         DeviceCodeView(code: authorization.userCode, initiallyCopied: true).id(authorization.userCode)
                         Link("Open Kimi sign-in ↗", destination: authorization.verificationURI).font(.caption)
                     }
                 }
-            }
-            if !kimi.isSigningIn {
-                Button("Use an API key instead") { kimi.reset(); kimiUsesKey = true }.buttonStyle(.link)
             }
         }
     }
 
     private var githubSetup: some View {
         SetupSteps {
-            SetupStep(1, "Sign in with GitHub") {
+            VStack(spacing: 12) {
                 signInControls(button: "Sign in with GitHub", isSigningIn: github.isSigningIn, phase: github.phase,
                                signedIn: copilotAccountName.map { "Signed in as \($0.hasPrefix("@") ? $0 : "@\($0)")" },
                                error: github.error, canSignIn: copilotAccountName == nil) { error = nil; github.start() }
             }
             if github.isSigningIn, let authorization = github.authorization {
-                SetupStep(2, "Enter the code on GitHub") {
+                VStack(spacing: 12) {
+                    Text("Enter the code on GitHub").font(.callout.weight(.medium))
                     DeviceCodeView(code: authorization.userCode, initiallyCopied: true).id(authorization.userCode)
                 }
             }
             if needsCopilotAllowance && !github.isSigningIn {
-                SetupStep(2, "Enter your monthly credit allowance") {
+                VStack(spacing: 12) {
+                    Text("Enter your monthly credit allowance").font(.callout.weight(.medium))
                     HStack {
                         TextField("Monthly credits", text: $copilotAllowanceInput, prompt: Text("e.g. 1000"))
                             .textFieldStyle(.roundedBorder).multilineTextAlignment(.center).frame(width: 200)
@@ -393,7 +609,7 @@ struct AccountEditor: View {
 
     private var openAISetup: some View {
         SetupSteps {
-            SetupStep(1, "Sign in with ChatGPT") {
+            VStack(spacing: 12) {
                 signInControls(button: "Sign in with ChatGPT", isSigningIn: openAI.isSigningIn, phase: openAI.phase,
                                signedIn: openAIAccountName.map { "Signed in as \($0)" },
                                error: openAI.error, canSignIn: openAIAccountName == nil) { error = nil; openAI.start() }
@@ -416,19 +632,21 @@ struct AccountEditor: View {
                         if !token.isEmpty { Label("Session imported", systemImage: "checkmark.circle").foregroundStyle(.secondary) }
                     }
                 } else {
-                    SetupStep(1, "Sign in with Claude") {
+                    VStack(spacing: 12) {
                         signInControls(button: "Sign in with Claude", isSigningIn: claude.isSigningIn, phase: claude.phase,
-                                       signedIn: claude.credential == nil ? nil : "Signed in", error: claude.error) {
+                                       signedIn: claude.credential == nil ? nil : claudeAccountName.map { "Signed in as \($0)" } ?? "Signed in",
+                                       error: claude.error) {
                             token = ""; error = nil; claude.start()
                         }
                     }
                 }
             }
             if !claude.isSigningIn {
-                Button(claudeImportsSession ? "Sign in with Claude instead" : "Import an existing session instead") {
+                Button(claudeImportsSession ? "Sign in with Claude" : "Import existing session") {
                     claude.reset(); token = ""; error = nil; importMessage = nil
+                    importedClaudeName = nil
                     claudeImportsSession.toggle()
-                }.buttonStyle(.link)
+                }.buttonStyle(.link).font(.caption)
             }
         }
     }
@@ -472,18 +690,40 @@ struct AccountEditor: View {
         } catch { importMessage = nil; self.error = error.localizedDescription }
     }
 
+    private func importDeepSeek() {
+        saving = true
+        error = nil
+        apiSaveTask = Task { @MainActor in
+            do {
+                let credential = try await Task.detached(priority: .userInitiated) {
+                    try DeepSeekHarnessImport.read()
+                }.value
+                try Task.checkCancellation()
+                importedCredential = credential
+                token = credential.accessToken
+                importMessage = "Session imported."
+                saving = false
+            } catch {
+                guard !Task.isCancelled else { return }
+                self.error = error.localizedDescription
+                saving = false
+            }
+        }
+    }
+
     private func importClaude() {
         do {
             claude.reset()
             let session = try SessionImport.claudeDefault()
             token = session.credential.accessToken
+            importedClaudeName = session.email
             source = .keychain
             importMessage = nil
             error = nil
         } catch { self.error = error.localizedDescription }
     }
 
-    private func save() {
+    private func save(allowMissingCopilotAllowance: Bool = false) {
         if usesAPI { saveAPIAccount(); return }
         if provider == .openCode {
             let secret = token.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -494,11 +734,13 @@ struct AccountEditor: View {
             }
             guard !secret.isEmpty || existing != nil else { error = "Paste a key or import it from OpenCode."; return }
             let label = typed.isEmpty ? (existing?.email ?? defaultAccountLabel) : typed
-            saveVerifiedKeyAccount(Account(id: existing?.id ?? UUID(), provider: .openCode, email: label), secret: secret)
+            saveVerifiedKeyAccount(Account(id: existing?.id ?? UUID(), provider: .openCode, email: label,
+                                           importsCLI: importsProviderSession), secret: secret)
             return
         }
         let typedLabel = (provider == .githubCopilot ? github.identity?.login ?? existing?.email ?? ""
                      : provider == .openAI ? openAIAccountName ?? ""
+                     : provider == .anthropic ? claudeAccountName ?? email
                      : usesKimiLogin ? kimiAccountName ?? "" : email)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let label = namesAreOptional && typedLabel.isEmpty ? (existing?.email ?? defaultAccountLabel) : typedLabel
@@ -529,7 +771,9 @@ struct AccountEditor: View {
             error = "Sign in with ChatGPT to verify your account and usage."; return
         }
         let monthlyAllowance = needsCopilotAllowance ? CopilotCreditUsage.parseAllowance(copilotAllowanceInput) : nil
-        if needsCopilotAllowance, monthlyAllowance == nil {
+        // OAuth completion should close the sheet even if GitHub omits the quota
+        // denominator. Keep it unknown; the allowance can be supplied in Edit.
+        if needsCopilotAllowance, monthlyAllowance == nil, !allowMissingCopilotAllowance {
             error = "Enter a monthly allowance greater than zero, in GitHub credits."; return
         }
         let managedSession = provider == .openAI ? openAI.session : nil
@@ -541,7 +785,7 @@ struct AccountEditor: View {
                                      : provider == .openAI ? openAI.identity?.accountID ?? existing?.externalAccountID
                                      : usesKimiLogin ? kimi.credential?.accountID ?? existing?.externalAccountID
                                     : accountID.isEmpty ? nil : accountID,
-                                kimiInternational: international, copilotMonthlyAllowance: monthlyAllowance)
+                                kimiInternational: provider == .moonshot ? true : international, copilotMonthlyAllowance: monthlyAllowance)
         saving = true
         do {
             var credential: Credential?
@@ -582,7 +826,8 @@ struct AccountEditor: View {
         }
         guard provider.supportsAPIBilling else { return }
         let account = Account(id: existing?.id ?? UUID(), provider: provider, email: label,
-                              kimiInternational: true, apiAccess: true)
+                              kimiInternational: true, apiAccess: true,
+                              importsCLI: provider == .deepSeek ? importsProviderSession : nil)
         saveVerifiedKeyAccount(account, secret: secret)
     }
 
@@ -595,7 +840,7 @@ struct AccountEditor: View {
                 if secret.isEmpty {
                     credential = try Keychain.read(for: account.id, allowInteraction: true)
                 } else {
-                    credential = Credential(accessToken: secret)
+                    credential = importedCredential ?? Credential(accessToken: secret)
                 }
                 // Validate actual billing/Go quota access, not just the ability to list models.
                 _ = try await UsageClient().fetch(account: account, credential: credential)

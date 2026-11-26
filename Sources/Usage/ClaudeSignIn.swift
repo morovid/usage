@@ -5,6 +5,7 @@ import UsageCore
 @MainActor
 final class ClaudeSignIn: ObservableObject {
     @Published private(set) var credential: Credential?
+    @Published private(set) var accountName: String?
     @Published private(set) var isSigningIn = false
     @Published private(set) var phase = ""
     @Published private(set) var error: String?
@@ -27,12 +28,14 @@ final class ClaudeSignIn: ObservableObject {
                 guard generation == attempt else { return }
                 phase = "Importing your signed-in session and checking Claude usage…"
                 // The Sign in action explicitly authorizes this import; macOS may ask for Keychain approval.
-                let credential = try SessionImport.claudeDefault().credential
+                let session = try SessionImport.claudeDefault()
+                let credential = session.credential
                 _ = try await UsageClient().fetch(account: Account(provider: .anthropic, email: "Claude account"),
                                                   credential: credential)
                 try Task.checkCancellation()
                 guard generation == attempt else { return }
                 self.credential = credential
+                self.accountName = session.email
                 isSigningIn = false
                 phase = ""
                 self.runner = nil
@@ -61,6 +64,7 @@ final class ClaudeSignIn: ObservableObject {
     func reset() {
         cancel()
         credential = nil
+        accountName = nil
         phase = ""
         error = nil
     }

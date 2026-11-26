@@ -7,6 +7,12 @@ import UserNotifications
 enum UsageApp {
     static func main() {
         let app = NSApplication.shared
+        // Accessory apps can enter the Dock later when Accounts opens. Set the
+        // image explicitly instead of relying on Launch Services' cached icon.
+        if let url = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
+           let icon = NSImage(contentsOf: url) {
+            app.applicationIconImage = icon
+        }
         let delegate = AppDelegate()
         app.delegate = delegate
         app.setActivationPolicy(.accessory)
@@ -115,11 +121,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUs
 
     @objc private func showAbout() {
         NSApp.activate(ignoringOtherApps: true)
+        let credits = NSMutableAttributedString(string: "Track your AI account usage and get notified as you approach your limits.\n\n")
+        credits.append(NSAttributedString(string: "usage.morovid.com", attributes: [
+            .link: URL(string: "https://usage.morovid.com")!
+        ]))
         NSApp.orderFrontStandardAboutPanel(options: [
             .applicationName: "Usage",
             .applicationVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.0",
             .version: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "1",
-            .credits: NSAttributedString(string: "A quiet home for your AI account limits.\nRefreshes every minute. Alerts at 70% and 100%.\n\nAuthor: Morovid"),
+            .credits: credits,
             NSApplication.AboutPanelOptionKey(rawValue: "Copyright"): "© 2026 Morovid"
         ])
     }

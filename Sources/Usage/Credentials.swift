@@ -23,6 +23,11 @@ enum Keychain {
     }
     private static let state = State()
 
+    /// Discovery must never retry denied Keychain reads merely to identify duplicates.
+    static func cachedCredential(for id: UUID) -> Credential? {
+        locked { $0.credentials[id] }
+    }
+
     private static func locked<T>(_ body: (State) -> T) -> T {
         state.lock.lock(); defer { state.lock.unlock() }
         return body(state)
@@ -181,19 +186,65 @@ enum Keychain {
     }
 }
 
-struct ImportedSession {
+struct ImportedSession: Sendable {
     var credential: Credential
     var email: String?
 }
 
 enum SessionImport {
-    @MainActor
     static func claudeDefault() throws -> ImportedSession {
-        let path = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/.credentials.json")
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let configHome = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"].flatMap {
+            $0.hasPrefix("/") ? URL(fileURLWithPath: $0) : nil
+        } ?? home.appendingPathComponent(".claude")
+        let path = configHome.appendingPathComponent(".credentials.json")
         let data = FileManager.default.fileExists(atPath: path.path)
             ? try Data(contentsOf: path) : try Keychain.read(service: "Claude Code-credentials")
         guard data.count < 1_000_000 else { throw UsageError.message("The Claude credential file is too large.") }
-        return try claude(data: data)
+        var session = try claude(data: data)
+        // Claude Code keeps account display metadata separately from its credential.
+        let config = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude.json")
+        if let metadata = try? Data(contentsOf: config), metadata.count < 1_000_000,
+           let root = (try? JSONSerialization.jsonObject(with: metadata)) as? [String: Any],
+           let account = root["oauthAccount"] as? [String: Any],
+           let email = account["emailAddress"] as? String, !email.isEmpty {
+            session.email = email
+            session.credential.accountID = account["accountUuid"] as? String
+        }
+        return session
+    }
+
+    /// Metadata-only probe with UI forbidden: discovering accounts must not trigger permission dialogs.
+    static func claudeKeychainDetected() -> DetectedHarness? {
+        let context = LAContext()
+        context.interactionNotAllowed = true
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "Claude Code-credentials",
+            kSecReturnAttributes as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecUseAuthenticationContext as String: context
+        ]
+        var result: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess else { return nil }
+        // If the token is readable without prompting, don't suggest a session
+        // which we already know would require signing in again.
+        if let data = try? Keychain.read(service: "Claude Code-credentials", allowInteraction: false),
+           let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+           let oauth = root["claudeAiOauth"] as? [String: Any],
+           LocalHarnessDetection.claudeTokenExpired(oauth) {
+            return nil
+        }
+        let config = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude.json")
+        var name: String?
+        var id: String?
+        if let data = try? Data(contentsOf: config), data.count < 1_000_000,
+           let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+           let account = root["oauthAccount"] as? [String: Any] {
+            name = account["emailAddress"] as? String
+            id = account["accountUuid"] as? String
+        }
+        return DetectedHarness(kind: .claudeCode, name: name, accountID: id)
     }
 
     static func claude(data: Data) throws -> ImportedSession {
@@ -202,23 +253,14 @@ enum SessionImport {
               let token = oauth["accessToken"] as? String, !token.isEmpty else {
             throw UsageError.message("This is not a Claude Code OAuth credential file. Run `claude auth login` first.")
         }
-        return ImportedSession(credential: Credential(accessToken: token), email: nil)
+        guard !LocalHarnessDetection.claudeTokenExpired(oauth) else {
+            throw UsageError.message("The saved Claude Code access token has expired. Choose Sign in with Claude, or run `claude auth login` and import again. Usage does not refresh Claude Code's shared session.")
+        }
+        return ImportedSession(credential: Credential(accessToken: token), email: oauth["emailAddress"] as? String)
     }
 
     static func openCodeGo() throws -> ImportedSession {
-        let env = ProcessInfo.processInfo.environment
-        let base = env["XDG_DATA_HOME"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) }
-            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/share")
-        let url = base.appendingPathComponent("opencode/auth.json")
-        guard let data = try? Data(contentsOf: url), data.count < 1_000_000 else {
-            throw UsageError.message("No OpenCode login found. Run /connect in OpenCode and choose OpenCode Go, or paste a key.")
-        }
-        guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let entry = root["opencode-go"] as? [String: Any],
-              let key = entry["key"] as? String, !key.isEmpty else {
-            throw UsageError.message("OpenCode has no OpenCode Go key. Run /connect and choose OpenCode Go, or paste a key.")
-        }
-        return ImportedSession(credential: Credential(accessToken: key), email: nil)
+        ImportedSession(credential: try OpenCodeCredentialImport.read(providerID: "opencode-go"), email: nil)
     }
 
     static func codex(path: String) throws -> ImportedSession {

@@ -88,6 +88,21 @@ struct APIBillingTests {
         #expect(throws: (any Error).self) { try APIBillingClient.parseDeepSeekBalance(Data(#"{"balance_infos":[]}"#.utf8)) }
     }
 
+    @Test func deepSeekHarnessUsesAccountHeaderNotAPIKey() async throws {
+        let json = #"{"code":0,"data":{"biz_code":0,"biz_data":{"normal_wallets":[{"currency":"USD","balance":"9"}],"bonus_wallets":[]}}}"#
+        let client = APIBillingClient(session: session([.init(json: json)]))
+        var credential = Credential(accessToken: "test-harness-token")
+        credential.deepSeekHarness = true
+        let snapshot = try await client.fetch(account: Account(provider: .deepSeek, email: "Harness", apiAccess: true),
+                                              credential: credential, now: now)
+        #expect(snapshot.billing?.amount == 9)
+        let request = try #require(BillingMockProtocol.requests.first)
+        #expect(request.url?.absoluteString == "https://platform.deepseek.com/api/v0/users/get_user_summary")
+        #expect(request.value(forHTTPHeaderField: "x-dsh-auth-token") == "test-harness-token")
+        #expect(request.value(forHTTPHeaderField: "Authorization") == nil)
+        #expect(request.httpBody == nil)
+    }
+
     @Test func zeroAndNegativeBalancesAreRealReadings() throws {
         for value in ["0", "-1.5"] {
             let data = balance.replacingOccurrences(of: "49.58894", with: value)

@@ -53,6 +53,9 @@ public final class UsageClient: @unchecked Sendable {
         switch response.statusCode {
         case 200...299: break
         case 401:
+            if account.provider == .anthropic {
+                throw UsageError.message("Claude rejected the imported session. Its access token may be expired or revoked. Choose Sign in with Claude, or run `claude auth login` and import again.")
+            }
             if account.provider == .moonshot, credential.oauthClientID != nil {
                 throw UsageError.message("Kimi sign-in expired or was revoked. Edit this account and sign in again with Kimi.")
             }
