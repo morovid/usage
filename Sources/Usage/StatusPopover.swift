@@ -1,8 +1,15 @@
 import AppKit
+import Combine
+
+@MainActor
+final class UsagePopoverLayout: ObservableObject {
+    @Published var maximumHeight: CGFloat = (NSScreen.main?.visibleFrame.height ?? 1080) / 2
+}
 
 /// A square, borderless status panel instead of NSPopover's rounded system chrome.
 @MainActor
 final class StatusPopover: NSObject, NSWindowDelegate {
+    let layout = UsagePopoverLayout()
     private let panel: StatusPanel
     private weak var anchorView: NSView?
     private var globalMonitor: Any?
@@ -62,6 +69,8 @@ final class StatusPopover: NSObject, NSWindowDelegate {
         let anchor = window.convertToScreen(view.convert(view.bounds, to: nil))
         let screen = window.screen ?? NSScreen.main
         let bounds = screen?.visibleFrame ?? window.frame
+        let maximumHeight = bounds.height / 2
+        if layout.maximumHeight != maximumHeight { layout.maximumHeight = maximumHeight }
         let x = min(max(anchor.midX - panel.frame.width / 2, bounds.minX + 6),
                     bounds.maxX - panel.frame.width - 6)
         let y = max(bounds.minY + 6, anchor.minY - panel.frame.height - 6)

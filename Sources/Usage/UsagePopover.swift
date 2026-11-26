@@ -38,19 +38,16 @@ struct ProviderBadge: View {
 
 struct UsagePopover: View {
     @ObservedObject var store: AppStore
+    @ObservedObject var layout: UsagePopoverLayout
     var addAccount: () -> Void
     var openAccounts: () -> Void
     var onResize: ((CGSize) -> Void)?
+    @State private var accountsHeight: CGFloat = 0
+    @State private var footerHeight: CGFloat = 0
     private var isFetching: Bool { store.statuses.values.contains(where: \.refreshing) }
     private var popupHeight: CGFloat {
         guard !store.accounts.isEmpty else { return 290 }
-        let rows = store.accounts.reduce(CGFloat.zero) { height, account in
-            let status = store.statuses[account.id]
-            let meters = status?.snapshot?.billing == nil ? status?.snapshot?.prominentWindows.count ?? 1 : 2
-            return height + max(36, CGFloat(meters) * 24) + (status?.error == nil ? 0 : 52)
-        }
-        let footer: CGFloat = 40
-        return min(540, max(110, rows + CGFloat(max(0, store.accounts.count - 1)) * 24 + 24 + footer))
+        return min(layout.maximumHeight, accountsHeight + footerHeight)
     }
     var body: some View {
         VStack(spacing: 0) {
@@ -68,37 +65,49 @@ struct UsagePopover: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView {
-                    LazyVStack(spacing: 12) {
+                    VStack(spacing: 12) {
                         ForEach(store.accounts) { account in
                             PopoverAccountRow(account: account, status: store.statuses[account.id] ?? AccountStatus())
                             if account.id != store.accounts.last?.id { Divider() }
                         }
-                    }.padding(12)
+                    }
+                    .padding(12)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: {
+                        accountsHeight = $0
+                    }
                 }
+                .scrollDisabled(accountsHeight + footerHeight <= layout.maximumHeight)
             }
-            if let error = store.storageError {
-                Text(error).font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.bottom, 10)
+            VStack(spacing: 0) {
+                if let error = store.storageError {
+                    Text(error).font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.bottom, 10)
+                }
+                Divider()
+                HStack(spacing: 6) {
+                    if let lastCheck = store.lastCheckedAt {
+                        Text("Last check \(lastCheck, style: .time)")
+                    }
+                    if isFetching {
+                        ProgressView()
+                            .controlSize(.mini)
+                            .accessibilityLabel("Fetching usage")
+                    }
+                    Spacer()
+                    Button(action: openAccounts) {
+                        Image(systemName: "gearshape")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Configure accounts")
+                    .accessibilityLabel("Configure accounts")
+                }
+                .font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
+                .padding(.horizontal, 12).padding(.vertical, 12)
             }
-            Divider()
-            HStack(spacing: 6) {
-                if let lastCheck = store.lastCheckedAt {
-                    Text("Last check \(lastCheck, style: .time)")
-                }
-                if isFetching {
-                    ProgressView()
-                        .controlSize(.mini)
-                        .accessibilityLabel("Fetching usage")
-                }
-                Spacer()
-                Button(action: openAccounts) {
-                    Image(systemName: "gearshape")
-                }
-                .buttonStyle(.borderless)
-                .help("Configure accounts")
-                .accessibilityLabel("Configure accounts")
+            .fixedSize(horizontal: false, vertical: true)
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: {
+                footerHeight = $0
             }
-            .font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
-            .padding(.horizontal, 12).padding(.vertical, 12)
         }
         .frame(width: 370, height: popupHeight)
         .background(Color(nsColor: .windowBackgroundColor))
@@ -152,15 +161,15 @@ struct APIBillingView: View {
         VStack(alignment: .leading, spacing: compact ? 3 : 8) {
             Text(billing.kind == .balance ? "Available balance" : "Month-to-date spend")
                 .font(.caption).foregroundStyle(.secondary)
-            Text(billing.amount, format: .currency(code: billing.currency).precision(.fractionLength(2...4)))
+            Text(billing.amount, format: .currency(code: billing.currency).precision(.fractionLength(billing.kind == .balance ? 2...2 : 2...4)))
                 .font(compact ? .system(size: 13, weight: .medium, design: .monospaced) : .title2)
                 .monospacedDigit()
             if !compact {
                 if let cash = billing.cashBalance {
-                    Text("Cash: \(cash.formatted(.currency(code: billing.currency).precision(.fractionLength(2...4))))")
+                    Text("Cash: \(cash.formatted(.currency(code: billing.currency).precision(.fractionLength(2))))")
                 }
                 if let vouchers = billing.voucherBalance {
-                    Text("Vouchers: \(vouchers.formatted(.currency(code: billing.currency).precision(.fractionLength(2...4))))")
+                    Text("Vouchers: \(vouchers.formatted(.currency(code: billing.currency).precision(.fractionLength(2))))")
                 }
                 if let start = billing.periodStart {
                     Text("Since \(start.formatted(.iso8601.year().month().day().dateSeparator(.dash))) (UTC)")
@@ -197,6 +206,12 @@ private struct PopoverUsageMeter: View {
         return "\(used.formatted(.number.precision(.fractionLength(0...2)))) / \(limit.formatted(.number.precision(.fractionLength(0...2))))"
     }
 
+    private var resetDescription: String {
+        guard let reset = window.resetsAt else { return "Reset time unavailable" }
+        guard reset > Date() else { return "Awaiting reset update" }
+        return "Resets \(reset.formatted(.relative(presentation: .numeric, unitsStyle: .abbreviated)))"
+    }
+
     var body: some View {
         GeometryReader { geometry in
             let width = max(0, geometry.size.width * window.usedPercent / 100)
@@ -225,11 +240,11 @@ private struct PopoverUsageMeter: View {
         .help(window.label)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(window.label), \(Int(window.usedPercent.rounded(.down))) percent used\(stale ? ", stale data" : "")")
-        .accessibilityValue(creditValues ?? "")
+        .accessibilityValue([creditValues, resetDescription].compactMap { $0 }.joined(separator: ", "))
     }
 
     private var meterText: some View {
-        Text(isHovered ? creditValues ?? "\(Int(window.usedPercent.rounded(.down)))%" : "\(Int(window.usedPercent.rounded(.down)))%")
+        Text(isHovered ? (window.resetsAt != nil ? resetDescription : creditValues ?? "\(Int(window.usedPercent.rounded(.down)))%") : "\(Int(window.usedPercent.rounded(.down)))%")
             .font(.system(size: 10, weight: .medium, design: .monospaced))
             .monospacedDigit().lineLimit(1).minimumScaleFactor(0.65)
             .padding(.horizontal, 4)

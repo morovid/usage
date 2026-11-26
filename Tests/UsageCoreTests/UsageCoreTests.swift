@@ -120,16 +120,21 @@ func missingDataIsNeverZero(_ provider: Provider) throws {
 }
 
 @Test func jumpingToExhaustedSendsOnlyOneAlert() {
-    let window = UsageWindow(id: "monthly", label: "Monthly", usedPercent: 100, duration: 2_592_000)
-    #expect(AlertPolicy.evaluate(window, previous: nil).threshold == 100)
+    var window = UsageWindow(id: "monthly", label: "Monthly", usedPercent: 0, duration: 2_592_000)
+    let initial = AlertPolicy.evaluate(window, previous: nil)
+    #expect(initial.threshold == nil)
+    window.usedPercent = 100
+    let exhausted = AlertPolicy.evaluate(window, previous: initial.state)
+    #expect(exhausted.threshold == 100)
+    #expect(AlertPolicy.evaluate(window, previous: exhausted.state).threshold == nil)
 }
 
-@Test func resetRearmsThresholds() {
+@Test func resetDoesNotRearmThresholdsDuringRuntime() {
     let now = Date()
     let window = UsageWindow(id: "5h", label: "5-hour", usedPercent: 72, duration: 18_000,
                              resetsAt: now.addingTimeInterval(18_000))
     let old = AlertState(highestThreshold: 100, resetsAt: now.addingTimeInterval(-60))
-    #expect(AlertPolicy.evaluate(window, previous: old, now: now).threshold == 70)
+    #expect(AlertPolicy.evaluate(window, previous: old, now: now).threshold == nil)
 }
 
 @Test func resetTimestampJitterDoesNotSpam() {
@@ -140,12 +145,34 @@ func missingDataIsNeverZero(_ provider: Provider) throws {
     #expect(AlertPolicy.evaluate(window, previous: old, now: now).threshold == nil)
 }
 
-@Test func droppingBelowWarningRearmsUnknownResetWindow() {
+@Test func droppingBelowWarningDoesNotRearmDuringRuntime() {
     var window = UsageWindow(id: "5h", label: "5-hour", usedPercent: 5, duration: 18_000)
     let decision = AlertPolicy.evaluate(window, previous: AlertState(highestThreshold: 100))
-    #expect(decision.state.highestThreshold == 0)
+    #expect(decision.state.highestThreshold == 100)
     window.usedPercent = 80
-    #expect(AlertPolicy.evaluate(window, previous: decision.state).threshold == 70)
+    #expect(AlertPolicy.evaluate(window, previous: decision.state).threshold == nil)
+}
+
+@Test func startupAlertsForCurrentRange() {
+    for (percent, threshold) in [(69.9, nil), (70.0, 70), (84.5, 70), (99.9, 70),
+                                 (100.0, 100), (125.0, 100)] as [(Double, Int?)] {
+        let window = UsageWindow(id: "monthly", label: "Monthly", usedPercent: percent, duration: 2_592_000)
+        let decision = AlertPolicy.evaluate(window, previous: nil)
+        #expect(decision.threshold == threshold)
+        #expect(AlertPolicy.evaluate(window, previous: decision.state).threshold == nil)
+    }
+}
+
+@Test func warningOvershootAndDropDoNotDuplicate() {
+    var window = UsageWindow(id: "monthly", label: "Monthly", usedPercent: 0, duration: 2_592_000)
+    var state: AlertState?
+    for (percent, threshold) in [(0.0, nil), (83.0, 70), (20.0, nil), (95.0, nil),
+                                 (105.0, 100), (40.0, nil), (100.0, nil)] as [(Double, Int?)] {
+        window.usedPercent = percent
+        let decision = AlertPolicy.evaluate(window, previous: state)
+        #expect(decision.threshold == threshold)
+        state = decision.state
+    }
 }
 
 @Test func accountAndAlertStateRoundTrip() throws {

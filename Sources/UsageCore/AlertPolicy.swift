@@ -15,14 +15,10 @@ public struct AlertDecision: Sendable {
 }
 
 public enum AlertPolicy {
-    /// Notify once per threshold per window. A jump to 100% emits just the exhausted alert.
+    /// Notify once per threshold per app run. A jump to 100% emits just the exhausted alert.
+    /// Keep the returned state in memory only; usage drops and window resets do not re-arm it.
     public static func evaluate(_ window: UsageWindow, previous: AlertState?, now: Date = Date()) -> AlertDecision {
         var state = previous ?? AlertState()
-        if let oldReset = state.resetsAt, oldReset <= now,
-           let newReset = window.resetsAt, newReset > now {
-            state.highestThreshold = 0
-        }
-        if window.usedPercent < 70 { state.highestThreshold = 0 }
         state.resetsAt = window.resetsAt
         let threshold = window.usedPercent >= 100 ? 100 : window.usedPercent >= 70 ? 70 : 0
         if threshold > state.highestThreshold {

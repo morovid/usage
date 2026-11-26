@@ -44,13 +44,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUs
             button.action = #selector(statusClicked)
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
-        popover.contentSize = NSSize(width: 370, height: 460)
+        popover.contentSize = NSSize(width: 370, height: 290)
         popover.contentViewController = NSHostingController(
-            rootView: UsagePopover(store: store,
+            rootView: UsagePopover(store: store, layout: popover.layout,
                                   addAccount: { [weak self] in self?.showAddAccount() },
                                   openAccounts: { [weak self] in self?.showAccounts() },
                                   onResize: { [weak self] size in self?.popover.contentSize = size }))
         store.start()
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        guard let store else { return }
+        Task {
+            // In particular, retry pending alerts after returning from Notification Settings.
+            await store.updateNotificationStatus()
+            await store.refreshAll(force: true)
+        }
     }
 
     @objc private func statusClicked() {

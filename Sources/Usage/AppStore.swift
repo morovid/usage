@@ -15,10 +15,9 @@ struct AccountStatus {
 
 private struct SavedState: Codable {
     var accounts: [Account]
-    var alerts: [String: AlertState]
 }
 
-/// Prevents an older background alert save overwriting a newer account order.
+/// Serializes account state writes.
 private final class StateWriter: @unchecked Sendable {
     private let lock = NSLock()
     private var lastRevision: UInt64 = 0
@@ -44,6 +43,7 @@ final class AppStore: ObservableObject {
     @Published var notificationStatus = "Not requested"
     @Published var notificationsAllowed = false
     private var alerts: [String: AlertState] = [:]
+    private var requestingNotificationPermission = false
     private let client = UsageClient()
     private let githubAuth = GitHubAuth()
     private let kimiAuth = KimiAuth()
@@ -65,7 +65,6 @@ final class AppStore: ObservableObject {
             if FileManager.default.fileExists(atPath: stateURL.path) {
                 let saved = try JSONDecoder().decode(SavedState.self, from: Data(contentsOf: stateURL))
                 accounts = saved.accounts
-                alerts = saved.alerts
             }
         } catch {
             storageError = "Could not read saved accounts. The original file has been preserved. \(error.localizedDescription)"
@@ -93,13 +92,31 @@ final class AppStore: ObservableObject {
     @objc private func didWake() { Task { await updateNotificationStatus(); await refreshAll() } }
 
     func requestNotifications() async {
+        guard !requestingNotificationPermission else { return }
+        requestingNotificationPermission = true
+        defer { requestingNotificationPermission = false }
         let settings = await center.notificationSettings()
-        guard settings.authorizationStatus == .notDetermined else {
-            // macOS does not show another permission prompt after a denial.
+        if settings.authorizationStatus == .denied {
+            await updateNotificationStatus()
+            // macOS cannot show its authorization prompt again after a denial.
+            let alert = NSAlert()
+            alert.messageText = "Allow Usage notifications"
+            alert.informativeText = "Enable notifications for Usage in System Settings. We'll notify you when your agent usage approaches or reaches its limits."
+            alert.addButton(withTitle: "Open Notification Settings")
+            alert.addButton(withTitle: "Not Now")
+            NSApp.activate(ignoringOtherApps: true)
+            if alert.runModal() == .alertFirstButtonReturn,
+               let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=app.morovid.Usage") {
+                NSWorkspace.shared.open(url)
+            }
+            return
+        }
+        guard settings.authorizationStatus == .notDetermined || settings.authorizationStatus == .provisional else {
             await updateNotificationStatus()
             return
         }
         do {
+            NSApp.activate(ignoringOtherApps: true)
             _ = try await center.requestAuthorization(options: [.alert, .sound])
             await updateNotificationStatus()
         } catch { notificationStatus = "Could not enable notifications: \(error.localizedDescription)" }
@@ -347,8 +364,10 @@ final class AppStore: ObservableObject {
     }
 
     private func notify(account: Account, snapshot: UsageSnapshot) async {
+        // Do not create or consume alerts before permission is granted.
+        // Read live settings because permission can change while a fetch is running.
+        await updateNotificationStatus()
         guard notificationsAllowed else { return }
-        var changed = false
         for window in snapshot.windows {
             // An already expired window is stale provider data, not a new alert.
             if let reset = window.resetsAt, reset <= snapshot.fetchedAt { continue }
@@ -360,7 +379,7 @@ final class AppStore: ObservableObject {
                 content.title = "Your \(account.provider.name) usage is \(percent)%"
                 content.subtitle = account.email
                 let limitName = window.isUserProvidedAllowance == true
-                    ? "User-provided monthly credit allowance" : "\(window.label) limit"
+                    ? "Monthly credit allowance" : "\(window.label) limit"
                 content.body = "\(limitName)\(threshold == 100 ? " reached" : " is approaching")."
                 content.sound = .default
                 content.userInfo = ["accountID": account.id.uuidString]
@@ -371,24 +390,12 @@ final class AppStore: ObservableObject {
                     continue // Retry later, without marking this alert delivered.
                 }
             }
-            if alerts[key] != decision.state { alerts[key] = decision.state; changed = true }
+            alerts[key] = decision.state
         }
-        if changed {
-            do { try await persistInBackground() } catch { storageError = "Could not save alert state: \(error.localizedDescription)" }
-        }
-    }
-
-    private func persistInBackground() async throws {
-        let data = try JSONEncoder().encode(SavedState(accounts: accounts, alerts: alerts))
-        let url = stateURL
-        stateRevision += 1
-        let revision = stateRevision
-        let writer = stateWriter
-        try await Task.detached(priority: .utility) { try writer.write(data, to: url, revision: revision) }.value
     }
 
     private func persist() throws {
-        let data = try JSONEncoder().encode(SavedState(accounts: accounts, alerts: alerts))
+        let data = try JSONEncoder().encode(SavedState(accounts: accounts))
         stateRevision += 1
         try stateWriter.write(data, to: stateURL, revision: stateRevision)
     }
